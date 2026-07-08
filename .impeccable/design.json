@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-08T00:00:00Z",
+  "title": "Design System: The Quiet Specimen",
+  "extensions": {
+    "colorMeta": {
+      "ink-dark": {
+        "role": "primary",
+        "displayName": "Warm Bone",
+        "canonical": "oklch(0.89 0.012 85)",
+        "tonalRamp": ["oklch(0.18 0.006 85)", "oklch(0.28 0.007 85)", "oklch(0.38 0.008 85)", "oklch(0.5 0.009 85)", "oklch(0.62 0.01 85)", "oklch(0.74 0.011 85)", "oklch(0.86 0.012 85)", "oklch(0.94 0.012 85)"]
+      },
+      "bg-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal",
+        "canonical": "oklch(0.15 0.003 80)",
+        "tonalRamp": ["oklch(0.15 0.003 80)", "oklch(0.22 0.003 80)", "oklch(0.3 0.004 80)", "oklch(0.42 0.004 80)", "oklch(0.55 0.005 80)", "oklch(0.68 0.005 80)", "oklch(0.82 0.006 80)", "oklch(0.93 0.006 80)"]
+      },
+      "muted-dark": {
+        "role": "neutral",
+        "displayName": "Margin-Note Gray",
+        "canonical": "oklch(0.45 0.004 80)",
+        "tonalRamp": ["oklch(0.18 0.003 80)", "oklch(0.27 0.003 80)", "oklch(0.36 0.004 80)", "oklch(0.45 0.004 80)", "oklch(0.57 0.005 80)", "oklch(0.69 0.005 80)", "oklch(0.82 0.006 80)", "oklch(0.93 0.006 80)"]
+      },
+      "bg-light": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "oklch(0.96 0.008 85)",
+        "tonalRamp": ["oklch(0.2 0.006 85)", "oklch(0.3 0.007 85)", "oklch(0.42 0.008 85)", "oklch(0.55 0.009 85)", "oklch(0.68 0.009 85)", "oklch(0.8 0.009 85)", "oklch(0.9 0.008 85)", "oklch(0.96 0.008 85)"]
+      },
+      "ink-light": {
+        "role": "primary",
+        "displayName": "Ink",
+        "canonical": "oklch(0.2 0.002 80)",
+        "tonalRamp": ["oklch(0.16 0.002 80)", "oklch(0.24 0.002 80)", "oklch(0.34 0.003 80)", "oklch(0.46 0.003 80)", "oklch(0.58 0.004 80)", "oklch(0.7 0.004 80)", "oklch(0.83 0.004 80)", "oklch(0.93 0.004 80)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display Serif", "purpose": "The name in the hero and, italic, the nav wordmark. Newsreader, at true display scale exactly once per page." },
+      "title": { "displayName": "Item Title", "purpose": "Project names, job titles — Sora 500, the solid/clickable foreground weight." },
+      "body": { "displayName": "Body Prose", "purpose": "Bio and descriptions — Sora 400 at 0.78–0.82 ink opacity, capped ~65–75ch." },
+      "label": { "displayName": "Section Label", "purpose": "The three uppercase mono section markers: WORK, PROJECTS, WRITING." },
+      "mono": { "displayName": "Mono Meta", "purpose": "Dates, tech-stack lines, nav and social links — the recurring engineer's margin note." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "fade-up", "value": "fadeUp 0.55s ease both — @keyframes { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } }", "purpose": "The single first-load entrance on hero elements, staggered by delay (0.05s / 0.15s / 0.25s / 0.35s). The only entrance animation in the system." },
+      { "name": "theme-crossfade", "value": "background 0.22s ease, color 0.22s ease", "purpose": "Cross-fade between charcoal and warm-paper themes on toggle." },
+      { "name": "hover-shift", "value": "0.15s ease (color / opacity / text-decoration-color / border-color)", "purpose": "All interactive rest→hover transitions: link underline fill, nav muted→ink, item fade to 0.6 opacity." }
+    ],
+    "breakpoints": [
+      { "name": "column", "value": "680px", "purpose": "Max content width; below it the 24px gutter carries the column edge-to-edge. The layout is otherwise fluid and single-column at every size." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Hero Name",
+      "kind": "custom",
+      "refersTo": "display",
+      "description": "The single largest gesture: the name set in Newsreader display serif.",
+      "html": "<h1 class=\"ds-hero-name\">Ashutosh Verma</h1>",
+      "css": ".ds-hero-name { font-family: 'Newsreader', Georgia, serif; font-size: clamp(38px, 6vw, 54px); font-weight: 400; line-height: 1.08; letter-spacing: -0.025em; color: #e0ddd6; background: #0d0d0d; padding: 24px; margin: 0; }"
+    },
+    {
+      "name": "Nav Link",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Lowercase monospace navigation link, muted at rest, ink on hover.",
+      "html": "<a href=\"#\" class=\"ds-nav-link\">projects</a>",
+      "css": ".ds-nav-link { font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.02em; color: #525252; background: #0d0d0d; padding: 16px 24px; text-decoration: none; display: inline-block; transition: color 0.15s ease; } .ds-nav-link:hover, .ds-nav-link:focus-visible { color: #e0ddd6; outline: none; }"
+    },
+    {
+      "name": "Theme Toggle",
+      "kind": "button",
+      "refersTo": "theme-toggle",
+      "description": "Monospace pill that switches light/dark; label names the target theme.",
+      "html": "<button class=\"ds-theme-toggle\">light</button>",
+      "css": ".ds-theme-toggle { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.06em; color: #525252; background: none; border: 1px solid #1e1e1e; border-radius: 5px; padding: 5px 10px; cursor: pointer; transition: color 0.15s ease, border-color 0.15s ease; } .ds-theme-toggle:hover, .ds-theme-toggle:focus-visible { color: #e0ddd6; border-color: #525252; outline: none; }"
+    },
+    {
+      "name": "Section Label",
+      "kind": "custom",
+      "refersTo": "section-label",
+      "description": "Uppercase tracked monospace marker naming a content zone.",
+      "html": "<p class=\"ds-section-label\">Projects</p>",
+      "css": ".ds-section-label { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: #525252; background: #0d0d0d; padding: 24px; margin: 0; }"
+    },
+    {
+      "name": "Project Item",
+      "kind": "card",
+      "refersTo": "item-title",
+      "description": "A project entry: title link with WIP-capable affix, description, and mono tech-stack line. No card chrome — separation comes from vertical rhythm.",
+      "html": "<div class=\"ds-project\"><a href=\"#\" class=\"ds-project-title\">RAG Retrieval System ↗</a><p class=\"ds-project-desc\">Production-style retrieval-augmented generation pipeline with hybrid search, Reciprocal Rank Fusion, and a FastAPI service.</p><p class=\"ds-project-stack\">Python · FastAPI · ChromaDB · RAGAS</p></div>",
+      "css": ".ds-project { background: #0d0d0d; padding: 24px; max-width: 588px; } .ds-project-title { font-family: 'Sora', sans-serif; font-size: 15px; font-weight: 500; letter-spacing: -0.01em; color: #e0ddd6; text-decoration: none; transition: opacity 0.15s ease; } .ds-project-title:hover, .ds-project-title:focus-visible { opacity: 0.6; outline: none; } .ds-project-desc { font-family: 'Sora', sans-serif; font-size: 14px; line-height: 1.75; color: #e0ddd6; opacity: 0.78; max-width: 540px; margin: 10px 0 14px; } .ds-project-stack { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #525252; margin: 0; }"
+    },
+    {
+      "name": "Writing Row",
+      "kind": "custom",
+      "refersTo": "item-title",
+      "description": "A full-width writing-list row: title left, mono date + read-time right, hairline bottom border.",
+      "html": "<a href=\"#\" class=\"ds-writing-row\"><span class=\"ds-writing-title\">How to scaffold a project for agentic AI driven development</span><span class=\"ds-writing-meta\">Jun 2026 · 8 min</span></a>",
+      "css": ".ds-writing-row { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; padding: 16px 24px; border-bottom: 1px solid #1e1e1e; background: #0d0d0d; text-decoration: none; transition: opacity 0.15s ease; } .ds-writing-row:hover, .ds-writing-row:focus-visible { opacity: 0.6; outline: none; } .ds-writing-title { font-family: 'Sora', sans-serif; font-size: 14.5px; line-height: 1.5; color: #e0ddd6; text-wrap: pretty; } .ds-writing-meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #525252; white-space: nowrap; flex-shrink: 0; }"
+    },
+    {
+      "name": "WIP Badge",
+      "kind": "chip",
+      "refersTo": "badge-wip",
+      "description": "Hairline-outlined monospace badge for unshipped projects.",
+      "html": "<span class=\"ds-badge-wip\">wip</span>",
+      "css": ".ds-badge-wip { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #525252; border: 1px solid #1e1e1e; border-radius: 4px; padding: 2px 7px; background: #0d0d0d; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Specimen",
+    "overview": "A type-specimen sheet reimagined as a portfolio. One narrow column of warm bone ink on charcoal, ruled off by hairline dividers, paced by generous vertical silence. Typography is the entire show: a literary serif for the name, a quiet geometric sans for prose, a monospace for the margin notes an engineer leaves behind. There is no accent color, no illustration, no card grid. Warmth carries entirely through the palette (bone not white, charcoal not black, paper not gray) and through type, never through decoration. Two fully-committed themes ship: a charcoal night default and a warm-paper day, each a complete world rather than an inverted copy.",
+    "keyCharacteristics": [
+      "Single 680px column; hairline 1px horizontal rules separate every section.",
+      "Monochromatic, warm-neutral, dual-theme. No accent hue anywhere.",
+      "Three-typeface system: serif display, sans body, mono labels/metadata.",
+      "Motion is a single staggered load-in on the hero, then stillness.",
+      "Warmth lives in the palette and type, never in decoration."
+    ],
+    "rules": [
+      { "name": "The No-Accent Rule", "body": "There is no accent color, and adding one is forbidden. Emphasis comes from weight, size, the serif/sans/mono switch, and the ink-to-muted contrast ramp, never from hue.", "section": "colors" },
+      { "name": "The Warm-Neutral Rule", "body": "Nothing is pure. Never #ffffff ink, never #000000 surface, never a cool gray. Every neutral carries a trace of warmth; that trace is the identity.", "section": "colors" },
+      { "name": "The Three-Hands Rule", "body": "Serif is the person, sans is the prose, mono is the machine. Never mix these jobs: a date is never Sora, a paragraph never mono, the name never anything but Newsreader.", "section": "typography" },
+      { "name": "The One-Serif-Moment Rule", "body": "The serif appears at true display scale exactly once (the hero name) and once small and italic (the wordmark). Do not spread Newsreader across headings and subheads; its rarity is what makes the specimen feel composed.", "section": "typography" },
+      { "name": "The No-Shadow Rule", "body": "Shadows are forbidden. If an element needs separation it gets a hairline border or a tonal fill, never a box-shadow.", "section": "elevation" },
+      { "name": "The Hairline Rule", "body": "Every divider, border, and outline is exactly 1px in the border token. No thick rules, and never a colored side-stripe border as an accent.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep everything in the single 680px column with a 24px gutter. The narrow measure is the composition.",
+      "Do separate sections with a single 1px hr in the border token, and nothing heavier.",
+      "Do honor the Three-Hands Rule: Newsreader for the name, Sora for prose, JetBrains Mono for every label, date, and tech line.",
+      "Do carry warmth through the palette: Warm Bone (#e0ddd6) ink, Charcoal (#0d0d0d) and Warm Paper (#f5f4f0) surfaces. Never pure white or pure black.",
+      "Do keep both themes first-class: reference tokens, test every new element in light and dark, verify body text clears 4.5:1 in both.",
+      "Do let motion be a single staggered fadeUp on first load, with a prefers-reduced-motion path that shows content instantly."
+    ],
+    "donts": [
+      "Don't ship the generic AI/template portfolio: no uniform project-card grid, no gradient text, no hero-metric stat blocks, no 01 / 02 / 03 numbered section markers.",
+      "Don't go overloaded or flashy: no particle backgrounds, no decorative glassmorphism, no motion beyond the one hero load-in.",
+      "Don't drift corporate or soulless: no stock photography, no agency-template layouts. This must read as a specific person.",
+      "Don't let it get cluttered or hard to scan: protect the vertical silence, keep prose under ~75ch, never bury the work.",
+      "Don't introduce an accent color, a drop shadow, or a colored side-stripe border: all three are forbidden.",
+      "Don't set the serif anywhere but the name and wordmark; spreading Newsreader across headings breaks the One-Serif-Moment rule."
+    ]
+  }
+}

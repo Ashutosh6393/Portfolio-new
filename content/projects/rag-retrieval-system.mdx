@@ -1,0 +1,45 @@
+export const metadata = {
+  title: "RAG Retrieval System",
+  summary:
+    "Production-style retrieval-augmented generation pipeline with hybrid search — BM25 + dense embeddings, Reciprocal Rank Fusion, ChromaDB, and a FastAPI service. Includes a RAGAS-inspired evaluation suite.",
+  stack: ["Python", "FastAPI", "ChromaDB", "RAGAS"],
+  status: "shipped",
+  href: "https://github.com",
+  order: 1,
+};
+
+A retrieval-augmented generation pipeline built the way a production system
+would be, not the way a demo is. The goal was to understand every layer of
+retrieval quality — from tokenization to reranking to evaluation — rather than
+wire an off-the-shelf vector store to a prompt and call it done.
+
+## The problem
+
+Naive vector search retrieves semantically similar chunks, but semantic
+similarity and _relevance_ are not the same thing. Pure dense retrieval misses
+exact keyword matches; pure lexical search misses paraphrase. Answering real
+questions well needs both, fused.
+
+## What I built
+
+- A hybrid retriever combining **BM25** lexical scoring with **dense
+  embeddings**, merged via Reciprocal Rank Fusion.
+- A **ChromaDB**-backed index with a chunking strategy tuned for the corpus.
+- A **FastAPI** service exposing retrieval and generation endpoints.
+- A **RAGAS-inspired evaluation suite** measuring faithfulness, answer
+  relevance, and context precision on a labelled question set.
+
+```python
+def reciprocal_rank_fusion(rankings, k=60):
+    scores = defaultdict(float)
+    for ranking in rankings:
+        for rank, doc_id in enumerate(ranking):
+            scores[doc_id] += 1 / (k + rank)
+    return sorted(scores, key=scores.get, reverse=True)
+```
+
+## Outcome
+
+Hybrid retrieval measurably beat either method alone on the evaluation set, and
+the eval harness turned "it feels better" into a number I could regress against
+on every change.

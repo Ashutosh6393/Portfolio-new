@@ -1,0 +1,31 @@
+export const metadata = {
+  title: "Code Context Engine",
+  summary:
+    "Custom MCP server that indexes codebases with tree-sitter so AI coding agents can search structurally instead of reading whole files — cutting token cost and improving accuracy.",
+  stack: ["TypeScript", "tree-sitter", "MCP"],
+  status: "wip",
+  order: 4,
+};
+
+An in-progress MCP server that gives AI coding agents a structural map of a
+codebase, so they can retrieve the _right_ code instead of paging through whole
+files and burning tokens.
+
+## The problem
+
+Coding agents waste enormous context reading entire files to find one function.
+Full-text search helps, but it doesn't understand structure — it can't ask for
+"the definition of `getUser` and its callers" as a first-class query.
+
+## What I'm building
+
+- A **tree-sitter**-based indexer that parses source into symbols, definitions,
+  and references.
+- An **MCP** server exposing structural queries (definition, references,
+  neighbourhood) as tools an agent can call.
+- A ranking layer that returns the smallest relevant slice, not the whole file.
+
+## Status
+
+Work in progress. Early results show meaningful token savings on agent runs;
+the accuracy evaluation harness is the current focus.

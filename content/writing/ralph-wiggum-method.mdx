@@ -1,0 +1,36 @@
+export const metadata = {
+  title: "What is the Ralph Wiggum method to code",
+  date: "2026-04-02",
+  readingTime: "5 min",
+  summary:
+    "A deliberately naive first pass that surfaces the real problem faster than careful design ever could.",
+};
+
+There's a coding move I think of as the Ralph Wiggum method: write the most
+obvious, almost embarrassingly literal version of the thing first, run it, and
+let reality tell you what's actually hard. It sounds anti-intellectual. It's
+one of the most useful habits I have.
+
+## Why naive first
+
+Careful up-front design assumes you understand the problem. Usually you don't —
+not yet. A naive implementation is a probe: it converts your fuzzy mental model
+into something concrete that either works or fails in a specific, informative
+way.
+
+## The loop
+
+1. Write the dumbest version that could possibly work.
+2. Run it against real input.
+3. Note precisely where it breaks.
+4. Fix _that_, and only that.
+
+Each pass replaces a guess with a fact. After a few rounds you've discovered the
+real shape of the problem, and the "proper" design is now obvious rather than
+speculative.
+
+## When not to
+
+The method fails where the naive version is expensive to undo — irreversible
+migrations, public APIs, anything with a blast radius. There, think first. For
+everything else, ship the dumb version and learn.

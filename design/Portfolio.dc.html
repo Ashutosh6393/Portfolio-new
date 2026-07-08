@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..500;1,6..72,300..400&family=Sora:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ashutosh Verma</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root, [data-theme="dark"] {
+      --bg: #0d0d0d;
+      --text: #e0ddd6;
+      --muted: #525252;
+      --subtle: #2a2a2a;
+      --border: #1e1e1e;
+      --tag-bg: #161616;
+      --nav-bg: rgba(13,13,13,0.9);
+    }
+    [data-theme="light"] {
+      --bg: #f5f4f0;
+      --text: #141414;
+      --muted: #8a8a8a;
+      --subtle: #dddbd5;
+      --border: #e0ddd8;
+      --tag-bg: #eceae4;
+      --nav-bg: rgba(245,244,240,0.9);
+    }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Sora', sans-serif;
+      font-size: 15px;
+      line-height: 1.75;
+      transition: background 0.22s ease, color 0.22s ease;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--text); text-decoration: underline; text-decoration-color: var(--subtle); text-underline-offset: 3px; transition: text-decoration-color 0.15s; }
+    a:hover { text-decoration-color: var(--text); color: var(--text); }
+    ul { list-style: none; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</helmet>
+
+<div style="min-height: 100vh; display: flex; flex-direction: column;">
+
+  <!-- Nav -->
+  <nav style="position: sticky; top: 0; z-index: 100; background: var(--nav-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--border);">
+    <div style="max-width: 680px; margin: 0 auto; padding: 0 24px; height: 54px; display: flex; justify-content: space-between; align-items: center;">
+      <a href="#top" style="font-family: 'Newsreader', serif; font-size: 17px; font-weight: 400; font-style: italic; text-decoration: none; color: var(--text); letter-spacing: -0.01em;">Ashutosh Verma</a>
+      <div style="display: flex; align-items: center; gap: 20px;">
+        <a href="#work" style="font-size: 12px; text-decoration: none; color: var(--muted); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.02em;" style-hover="color: var(--text)">work</a>
+        <a href="#projects" style="font-size: 12px; text-decoration: none; color: var(--muted); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.02em;" style-hover="color: var(--text)">projects</a>
+        <a href="#writing" style="font-size: 12px; text-decoration: none; color: var(--muted); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.02em;" style-hover="color: var(--text)">writing</a>
+        <button onClick="{{ toggleTheme }}" style="background: none; border: 1px solid var(--border); cursor: pointer; color: var(--muted); padding: 5px 10px; border-radius: 5px; font-size: 11px; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.06em; transition: border-color 0.15s, color 0.15s; display: flex; align-items: center;" style-hover="color: var(--text); border-color: var(--muted)">
+          <sc-if value="{{ isDark }}" hint-placeholder-val="{{ true }}">light</sc-if>
+          <sc-if value="{{ isLight }}" hint-placeholder-val="{{ false }}">dark</sc-if>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main id="top" style="flex: 1; max-width: 680px; width: 100%; margin: 0 auto; padding: 0 24px;">
+
+    <!-- Hero -->
+    <section style="padding: 76px 0 68px;">
+      <h1 style="font-family: 'Newsreader', serif; font-size: clamp(38px, 6vw, 54px); font-weight: 400; line-height: 1.08; letter-spacing: -0.025em; margin-bottom: 20px; animation: fadeUp 0.55s ease both; animation-delay: 0.05s;">Ashutosh Verma</h1>
+      <p style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--muted); line-height: 1.65; margin-bottom: 28px; max-width: 540px; animation: fadeUp 0.55s ease both; animation-delay: 0.15s;">Full-stack + AI engineer. I build products on top of foundation models, from retrieval pipelines to the frontend people actually touch.</p>
+      <p style="font-size: 14.5px; color: var(--text); max-width: 580px; line-height: 1.8; opacity: 0.82; margin-bottom: 36px; animation: fadeUp 0.55s ease both; animation-delay: 0.25s;">I'm a software developer with a year of professional experience and a slightly obsessive interest in the layer where full-stack engineering meets applied AI. Day to day I work in the usual web stack, but my real focus is building AI-native systems — retrieval-augmented generation, agent tooling, and the developer infrastructure around LLMs. I learn in public and treat every project as a chance to go one layer deeper than I strictly need to.</p>
+      <div style="display: flex; flex-wrap: wrap; gap: 0; animation: fadeUp 0.55s ease both; animation-delay: 0.35s;">
+        <a href="https://github.com" target="_blank" style="font-size: 12.5px; font-family: 'JetBrains Mono', monospace; text-decoration: none; color: var(--muted); margin-right: 20px; margin-bottom: 8px; transition: color 0.15s;" style-hover="color: var(--text)">GitHub ↗</a>
+        <a href="https://twitter.com" target="_blank" style="font-size: 12.5px; font-family: 'JetBrains Mono', monospace; text-decoration: none; color: var(--muted); margin-right: 20px; margin-bottom: 8px; transition: color 0.15s;" style-hover="color: var(--text)">Twitter ↗</a>
+        <a href="https://linkedin.com" target="_blank" style="font-size: 12.5px; font-family: 'JetBrains Mono', monospace; text-decoration: none; color: var(--muted); margin-right: 20px; margin-bottom: 8px; transition: color 0.15s;" style-hover="color: var(--text)">LinkedIn ↗</a>
+        <a href="https://instagram.com" target="_blank" style="font-size: 12.5px; font-family: 'JetBrains Mono', monospace; text-decoration: none; color: var(--muted); margin-right: 20px; margin-bottom: 8px; transition: color 0.15s;" style-hover="color: var(--text)">Instagram ↗</a>
+        <a href="mailto:ashutosh@example.com" style="font-size: 12.5px; font-family: 'JetBrains Mono', monospace; text-decoration: none; color: var(--muted); margin-right: 20px; margin-bottom: 8px; transition: color 0.15s;" style-hover="color: var(--text)">Email</a>
+        <a href="#" style="font-size: 12.5px; font-family: 'JetBrains Mono', monospace; text-decoration: none; color: var(--muted); margin-bottom: 8px; transition: color 0.15s;" style-hover="color: var(--text)">Resume ↗</a>
+      </div>
+    </section>
+
+    <hr style="border: none; border-top: 1px solid var(--border);" />
+
+    <!-- Work -->
+    <section id="work" style="padding: 56px 0;">
+      <p style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 36px;">Work</p>
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px; margin-bottom: 4px;">
+          <span style="font-size: 15px; font-weight: 500; letter-spacing: -0.01em;">Software Developer</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted);">2025 – Present</span>
+        </div>
+        <p style="font-size: 12.5px; color: var(--muted); margin-bottom: 20px; font-family: 'JetBrains Mono', monospace;">[Company]</p>
+        <ul style="display: flex; flex-direction: column; gap: 10px;">
+          <li style="font-size: 14px; color: var(--text); opacity: 0.82; padding-left: 18px; position: relative; line-height: 1.7;">
+            <span style="position: absolute; left: 0; color: var(--muted);">—</span>
+            Developed and maintained features across a full-stack web application
+          </li>
+          <li style="font-size: 14px; color: var(--text); opacity: 0.82; padding-left: 18px; position: relative; line-height: 1.7;">
+            <span style="position: absolute; left: 0; color: var(--muted);">—</span>
+            Improved build reliability and reduced CI/CD deployment friction
+          </li>
+          <li style="font-size: 14px; color: var(--text); opacity: 0.82; padding-left: 18px; position: relative; line-height: 1.7;">
+            <span style="position: absolute; left: 0; color: var(--muted);">—</span>
+            Collaborated with product and QA on feature delivery and code reviews
+          </li>
+          <li style="font-size: 14px; color: var(--text); opacity: 0.82; padding-left: 18px; position: relative; line-height: 1.7;">
+            <span style="position: absolute; left: 0; color: var(--muted);">—</span>
+            Integrated AI tooling into development workflows
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <hr style="border: none; border-top: 1px solid var(--border);" />
+
+    <!-- Projects -->
+    <section id="projects" style="padding: 56px 0;">
+      <p style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 36px;">Projects</p>
+      <div style="display: flex; flex-direction: column; gap: 44px;">
+
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+            <a href="#" style="font-size: 15px; font-weight: 500; text-decoration: none; color: var(--text); letter-spacing: -0.01em; transition: opacity 0.15s;" style-hover="opacity: 0.6">RAG Retrieval System ↗</a>
+          </div>
+          <p style="font-size: 14px; color: var(--text); opacity: 0.78; margin-bottom: 14px; line-height: 1.75; max-width: 540px;">Production-style retrieval-augmented generation pipeline with hybrid search — BM25 + dense embeddings, Reciprocal Rank Fusion, ChromaDB, and a FastAPI service. Includes a RAGAS-inspired evaluation suite.</p>
+          <p style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted);">Python · FastAPI · ChromaDB · RAGAS</p>
+        </div>
+
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+            <a href="#" style="font-size: 15px; font-weight: 500; text-decoration: none; color: var(--text); letter-spacing: -0.01em; transition: opacity 0.15s;" style-hover="opacity: 0.6">FrontalLobe ↗</a>
+          </div>
+          <p style="font-size: 14px; color: var(--text); opacity: 0.78; margin-bottom: 14px; line-height: 1.75; max-width: 540px;">Cognitive-ability and reaction-time testing app with self-hosted collaborative editing. Built with a real-time collaborative document layer — full-stack product sense, frontend depth.</p>
+          <p style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted);">TypeScript · React · Next.js · Tiptap · HocusPocus</p>
+        </div>
+
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+            <a href="#" style="font-size: 15px; font-weight: 500; text-decoration: none; color: var(--text); letter-spacing: -0.01em; transition: opacity 0.15s;" style-hover="opacity: 0.6">Real-time Collaborative Notes ↗</a>
+          </div>
+          <p style="font-size: 14px; color: var(--text); opacity: 0.78; margin-bottom: 14px; line-height: 1.75; max-width: 540px;">Collaborative editor with conflict-free sync built on Operational Transforms over WebSockets. Full unit test suite covering OT correctness and edge cases.</p>
+          <p style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted);">WebSockets · Operational Transforms</p>
+        </div>
+
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+            <span style="font-size: 15px; font-weight: 500; color: var(--text); letter-spacing: -0.01em;">Code Context Engine</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); border: 1px solid var(--border); padding: 2px 7px; border-radius: 4px; letter-spacing: 0.06em; text-transform: uppercase;">wip</span>
+          </div>
+          <p style="font-size: 14px; color: var(--text); opacity: 0.78; margin-bottom: 14px; line-height: 1.75; max-width: 540px;">Custom MCP server that indexes codebases with tree-sitter so AI coding agents can search structurally instead of reading whole files — cutting token cost and improving accuracy.</p>
+          <p style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted);">TypeScript · tree-sitter · MCP</p>
+        </div>
+
+      </div>
+    </section>
+
+    <hr style="border: none; border-top: 1px solid var(--border);" />
+
+    <!-- Writing -->
+    <section id="writing" style="padding: 56px 0 80px;">
+      <p style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 36px;">Writing</p>
+      <div style="display: flex; flex-direction: column;">
+
+        <a href="#" style="display: flex; justify-content: space-between; align-items: baseline; padding: 16px 0; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); gap: 20px; transition: opacity 0.15s;" style-hover="opacity: 0.6">
+          <span style="font-size: 14.5px; text-wrap: pretty; line-height: 1.5;">How to scaffold a project for agentic AI driven development</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0;">Jun 2026 · 8 min</span>
+        </a>
+
+        <a href="#" style="display: flex; justify-content: space-between; align-items: baseline; padding: 16px 0; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); gap: 20px; transition: opacity 0.15s;" style-hover="opacity: 0.6">
+          <span style="font-size: 14.5px; text-wrap: pretty; line-height: 1.5;">What is the Ralph Wiggum method to code</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0;">Apr 2026 · 5 min</span>
+        </a>
+
+        <a href="#" style="display: flex; justify-content: space-between; align-items: baseline; padding: 16px 0; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); gap: 20px; transition: opacity 0.15s;" style-hover="opacity: 0.6">
+          <span style="font-size: 14.5px; text-wrap: pretty; line-height: 1.5;">Loop engineering</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0;">Mar 2026 · 6 min</span>
+        </a>
+
+        <a href="#" style="display: flex; justify-content: space-between; align-items: baseline; padding: 16px 0; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); gap: 20px; transition: opacity 0.15s;" style-hover="opacity: 0.6">
+          <span style="font-size: 14.5px; text-wrap: pretty; line-height: 1.5;">Real time communications</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0;">Jan 2026 · 10 min</span>
+        </a>
+
+        <a href="#" style="display: flex; justify-content: space-between; align-items: baseline; padding: 16px 0; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); gap: 20px; transition: opacity 0.15s;" style-hover="opacity: 0.6">
+          <span style="font-size: 14.5px; text-wrap: pretty; line-height: 1.5;">All about HTTP</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0;">Nov 2025 · 12 min</span>
+        </a>
+
+        <a href="#" style="display: flex; justify-content: space-between; align-items: baseline; padding: 16px 0; text-decoration: none; color: var(--text); gap: 20px; transition: opacity 0.15s;" style-hover="opacity: 0.6">
+          <span style="font-size: 14.5px; text-wrap: pretty; line-height: 1.5;">How to set up git and GitHub for production</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0;">Sep 2025 · 7 min</span>
+        </a>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer style="border-top: 1px solid var(--border);">
+    <div style="max-width: 680px; margin: 0 auto; padding: 22px 24px; display: flex; justify-content: space-between; align-items: center;">
+      <p style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted);">Ashutosh Verma</p>
+      <p style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted);">© 2026</p>
+    </div>
+  </footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { theme: 'dark' };
+
+  componentDidMount() {
+    const saved = localStorage.getItem('av-portfolio-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', saved);
+    this.setState({ theme: saved });
+  }
+
+  componentDidUpdate(prevProps, prevState) {
+    if (prevState.theme !== this.state.theme) {
+      document.documentElement.setAttribute('data-theme', this.state.theme);
+    }
+  }
+
+  toggleTheme() {
+    const next = this.state.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('av-portfolio-theme', next);
+    this.setState({ theme: next });
+  }
+
+  renderVals() {
+    return {
+      isDark: this.state.theme === 'dark',
+      isLight: this.state.theme === 'light',
+      toggleTheme: () => this.toggleTheme(),
+    };
+  }
+}
+</script>
+</body>
+</html>

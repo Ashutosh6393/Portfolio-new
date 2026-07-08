@@ -1,0 +1,52 @@
+import type { Metadata } from "next";
+import type { ComponentType } from "react";
+import { Container } from "@/components/site/container";
+import { BackLink } from "@/components/site/back-link";
+import { writingSlugs, type PostMeta } from "@/lib/content";
+import { postMeta } from "@/lib/format";
+
+type PostModule = { default: ComponentType; metadata: PostMeta };
+
+export function generateStaticParams() {
+  return writingSlugs().map((slug) => ({ slug }));
+}
+
+export const dynamicParams = false;
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const { metadata } = (await import(`@/content/writing/${slug}.mdx`)) as PostModule;
+  return { title: metadata.title, description: metadata.summary };
+}
+
+export default async function WritingPost({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  const { default: Post, metadata } = (await import(
+    `@/content/writing/${slug}.mdx`
+  )) as PostModule;
+
+  return (
+    <Container className="pb-24 pt-[76px]">
+      <BackLink href="/writing">Writing</BackLink>
+      <header className="mb-12 mt-8">
+        <h1 className="mb-4 font-serif text-[clamp(30px,5vw,44px)] font-normal leading-[1.12] tracking-[-0.02em] [text-wrap:balance]">
+          {metadata.title}
+        </h1>
+        <p className="font-mono text-[12px] text-muted">
+          {postMeta(metadata.date, metadata.readingTime)}
+        </p>
+      </header>
+      <article className="prose">
+        <Post />
+      </article>
+    </Container>
+  );
+}
