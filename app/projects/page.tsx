@@ -8,6 +8,13 @@ export const metadata: Metadata = {
   description: "Things I've built at the intersection of full-stack engineering and applied AI.",
 };
 
+function Divider() {
+  // return (
+  //   <div className="h-5 bg-[repeating-linear-gradient(60deg,var(--bg)_0px,var(--bg)_8px,var(--border)_8px,var(--border)_9px)]"></div>
+  // );
+  return <hr className="border-0 border-t border-border" />;
+}
+
 export default async function ProjectsIndex() {
   const projects = await getProjects();
 
@@ -30,7 +37,10 @@ export default async function ProjectsIndex() {
       ) : (
         <div className="flex flex-col gap-11">
           {projects.map((project) => (
+            <>
             <ProjectRow key={project.slug} project={project} />
+            <Divider/>
+            </>
           ))}
         </div>
       )}
