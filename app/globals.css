@@ -54,16 +54,13 @@ body {
   transition: background 0.22s ease, color 0.22s ease;
 }
 
-/* Inline text links (prose + body). List-item links opt out via .link-plain. */
+/* Links: no underline, smooth color/opacity transitions. No `color` here on
+   purpose — nav/social links set their own via text-muted + hover:text-ink,
+   and bare links inherit body ink. Declaring color would beat those utilities
+   (this rule is unlayered; Tailwind's utilities live in @layer utilities). */
 a {
-  color: var(--text);
-  text-decoration: underline;
-  text-decoration-color: var(--subtle);
-  text-underline-offset: 3px;
-  transition: text-decoration-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
-}
-a:hover {
-  text-decoration-color: var(--text);
+  text-decoration: none;
+  transition: color 0.15s ease, opacity 0.15s ease;
 }
 
 ::selection {

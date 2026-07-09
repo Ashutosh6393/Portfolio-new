@@ -13,7 +13,7 @@ export default async function WritingIndex() {
   const posts = await getWritingPosts();
 
   return (
-    <Container className="pb-24 pt-[76px]">
+    <Container className="pb-24 pt-[76px] absolute inset-0">
       <header className="mb-10">
         <h1 className="mb-3 font-serif text-[clamp(30px,5vw,44px)] font-normal leading-[1.12] tracking-[-0.02em]">
           Writing

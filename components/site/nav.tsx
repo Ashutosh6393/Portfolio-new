@@ -5,8 +5,8 @@ import { profile } from "@/content/profile";
 
 const links = [
   { href: "/#work", label: "work" },
-  { href: "/#projects", label: "projects" },
-  { href: "/#writing", label: "writing" },
+  { href: "/projects", label: "projects" },
+  { href: "/writing", label: "writing" },
 ];
 
 export function Nav() {
@@ -15,9 +15,9 @@ export function Nav() {
       <Container className="flex h-[54px] items-center justify-between">
         <Link
           href="/"
-          className="font-serif text-[17px] italic tracking-[-0.01em] no-underline"
+          className="font-serif text-[17px] tracking-[-0.01em] no-underline underline-offset-2"
         >
-          {profile.name}
+          AV.
         </Link>
         <div className="flex items-center gap-5">
           {links.map((link) => (

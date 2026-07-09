@@ -48,9 +48,9 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${serif.variable} ${sans.variable} ${mono.variable} h-full antialiased`}
+      className={`${serif.variable} ${sans.variable} ${mono.variable}  antialiased`}
     >
-      <body className="flex min-h-full flex-col">
+      <body className="flex min-h-full flex-col flex-1">
         <ThemeProvider
           attribute="data-theme"
           defaultTheme="dark"
@@ -58,7 +58,7 @@ export default function RootLayout({
           storageKey="av-portfolio-theme"
         >
           <Nav />
-          <main className="w-full flex-1">{children}</main>
+          <main className="w-full flex-1 relative">{children}</main>
           <Footer />
         </ThemeProvider>
       </body>
