@@ -17,7 +17,9 @@ export type ProjectMeta = {
   summary: string;
   stack: string[];
   status?: "shipped" | "wip";
-  href?: string; // external repo / live link, if any
+  repo?: string; // source-code link, if public
+  demo?: string; // live / "visit" link, if any
+  show?: boolean; // when true, featured on the homepage; the /projects index shows all
   order?: number; // controls list order (ascending); defaults to end
 };
 

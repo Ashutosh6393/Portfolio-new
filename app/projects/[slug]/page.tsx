@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ComponentType } from "react";
 import { Container } from "@/components/site/container";
 import { BackLink } from "@/components/site/back-link";
+import { ProjectLinks } from "@/components/ui/project-links";
 import { projectSlugs, type ProjectMeta } from "@/lib/content";
 
 type ProjectModule = { default: ComponentType; metadata: ProjectMeta };
@@ -51,16 +52,11 @@ export default async function ProjectPage({
         <p className="font-mono text-[11.5px] text-muted">
           {metadata.stack.join(" · ")}
         </p>
-        {metadata.href && (
-          <a
-            href={metadata.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-block font-mono text-[12.5px] text-muted no-underline transition-colors hover:text-ink"
-          >
-            View source ↗
-          </a>
-        )}
+        <ProjectLinks
+          repo={metadata.repo}
+          demo={metadata.demo}
+          className="mt-4 text-[12.5px]"
+        />
       </header>
       <article className="prose">
         <Project />

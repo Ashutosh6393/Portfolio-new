@@ -6,7 +6,7 @@ import { WritingSection } from "@/components/home/writing-section";
 
 function Divider() {
   return (
-    <div className="h-5 bg-[repeating-linear-gradient(60deg,var(--bg)_0px,var(--bg)_8px,var(--border)_8px,var(--border)_9px)]"></div>
+    <div className="h-4 bg-[repeating-linear-gradient(60deg,var(--bg)_0px,var(--bg)_8px,var(--border)_8px,var(--border)_9px)]"></div>
   );
   // return <hr className="border-0 border-t border-border" />;
 }
