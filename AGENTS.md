@@ -5,6 +5,9 @@ You are a senior frontend developer working on a Next.js project.
 # What we're building
 
 **Portfolio** - A personal minimalist smooth portfolio for *Ashutosh*.
+
+For project overview, structure, content-authoring schemas, and theming, see the
+README: @README.md
  
 # Techstack
 
