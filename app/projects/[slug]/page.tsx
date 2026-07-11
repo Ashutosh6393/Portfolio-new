@@ -5,6 +5,7 @@ import { BackLink } from "@/components/site/back-link";
 import { ProjectLinks } from "@/components/ui/project-links";
 import { Toc } from "@/components/ui/toc";
 import { getHeadings, projectSlugs, type ProjectMeta } from "@/lib/content";
+import { profile } from "@/content/profile";
 
 type ProjectModule = { default: ComponentType; metadata: ProjectMeta };
 
@@ -23,7 +24,22 @@ export async function generateMetadata({
   const { metadata } = (await import(
     `@/content/projects/${slug}.mdx`
   )) as ProjectModule;
-  return { title: metadata.title, description: metadata.summary };
+  return {
+    title: metadata.title,
+    description: metadata.summary,
+    openGraph: {
+      title: metadata.title,
+      description: metadata.summary,
+      type: "article",
+      url: `/projects/${slug}`,
+      siteName: profile.name,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: metadata.title,
+      description: metadata.summary,
+    },
+  };
 }
 
 export default async function ProjectPage({

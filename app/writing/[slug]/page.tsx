@@ -5,6 +5,7 @@ import { BackLink } from "@/components/site/back-link";
 import { Toc } from "@/components/ui/toc";
 import { getHeadings, writingSlugs, type PostMeta } from "@/lib/content";
 import { postMeta } from "@/lib/format";
+import { profile } from "@/content/profile";
 
 type PostModule = { default: ComponentType; metadata: PostMeta };
 
@@ -21,7 +22,22 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const { metadata } = (await import(`@/content/writing/${slug}.mdx`)) as PostModule;
-  return { title: metadata.title, description: metadata.summary };
+  return {
+    title: metadata.title,
+    description: metadata.summary,
+    openGraph: {
+      title: metadata.title,
+      description: metadata.summary,
+      type: "article",
+      url: `/writing/${slug}`,
+      siteName: profile.name,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: metadata.title,
+      description: metadata.summary,
+    },
+  };
 }
 
 export default async function WritingPost({

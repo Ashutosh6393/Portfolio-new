@@ -226,10 +226,32 @@ a {
 /* ---- Code blocks: macOS window frame + warm highlighting ------------- */
 /* Code is the one place the No-Accent rule is relaxed (see DESIGN.md). */
 .prose .code-block {
+  position: relative;
   background: var(--tag-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+}
+.prose .code-block__copy {
+  position: absolute;
+  top: 9px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border-radius: 5px;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+.prose .code-block:hover .code-block__copy,
+.prose .code-block__copy:focus-visible {
+  opacity: 1;
+}
+.prose .code-block__copy:hover {
+  color: var(--text);
+  background: var(--border);
 }
 .prose .code-block__bar {
   display: flex;
