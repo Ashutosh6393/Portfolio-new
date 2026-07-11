@@ -4,6 +4,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import GithubSlugger from "github-slugger";
 
 export type PostMeta = {
   title: string;
@@ -40,6 +41,40 @@ export function writingSlugs(): string[] {
 
 export function projectSlugs(): string[] {
   return slugsIn(PROJECTS_DIR);
+}
+
+export type Heading = { id: string; text: string };
+
+// Pull the h2 headings from a raw .mdx file for the table of contents. Slugs are
+// generated with github-slugger so they match the ids rehype-slug writes at
+// build time. Fenced code blocks are skipped so a commented `## ...` never leaks
+// into the TOC.
+export function getHeadings(type: "writing" | "projects", slug: string): Heading[] {
+  const dir = type === "writing" ? WRITING_DIR : PROJECTS_DIR;
+  const file = path.join(dir, `${slug}.mdx`);
+  if (!fs.existsSync(file)) return [];
+
+  const slugger = new GithubSlugger();
+  const headings: Heading[] = [];
+  let inFence = false;
+
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = /^##\s+(.+?)\s*$/.exec(line);
+    if (!match) continue;
+    // Strip inline markdown (`code`, **bold**, *italic*) to plain label text.
+    const text = match[1]
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .trim();
+    headings.push({ id: slugger.slug(text), text });
+  }
+  return headings;
 }
 
 export type Post = PostMeta & { slug: string };

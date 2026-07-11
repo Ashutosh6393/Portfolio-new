@@ -10,9 +10,10 @@ const withMDX = createMDX({
   options: {
     // String form so the plugins are serializable for Turbopack (Next 16 default).
     remarkPlugins: ["remark-gfm"],
-    // Class-based highlighting (hljs-* classes) so the palette lives in our CSS
-    // tokens, not the plugin. ignoreMissing: skip unknown fence languages.
-    rehypePlugins: [["rehype-highlight", { ignoreMissing: true }]],
+    // rehype-slug: id="" on every heading so the TOC can anchor to sections.
+    // rehype-highlight: class-based highlighting (hljs-* classes) so the palette
+    // lives in our CSS tokens, not the plugin. ignoreMissing skips unknown langs.
+    rehypePlugins: ["rehype-slug", ["rehype-highlight", { ignoreMissing: true }]],
   },
 });
 

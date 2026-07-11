@@ -3,7 +3,8 @@ import type { ComponentType } from "react";
 import { Container } from "@/components/site/container";
 import { BackLink } from "@/components/site/back-link";
 import { ProjectLinks } from "@/components/ui/project-links";
-import { projectSlugs, type ProjectMeta } from "@/lib/content";
+import { Toc } from "@/components/ui/toc";
+import { getHeadings, projectSlugs, type ProjectMeta } from "@/lib/content";
 
 type ProjectModule = { default: ComponentType; metadata: ProjectMeta };
 
@@ -34,9 +35,11 @@ export default async function ProjectPage({
   const { default: Project, metadata } = (await import(
     `@/content/projects/${slug}.mdx`
   )) as ProjectModule;
+  const headings = getHeadings("projects", slug);
 
   return (
     <Container className="pb-24 pt-[76px]">
+      <Toc headings={headings} />
       <BackLink href="/projects">Projects</BackLink>
       <header className="mb-12 mt-8">
         <div className="mb-4 flex flex-wrap items-center gap-3">

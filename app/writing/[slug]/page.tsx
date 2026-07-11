@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import type { ComponentType } from "react";
 import { Container } from "@/components/site/container";
 import { BackLink } from "@/components/site/back-link";
-import { writingSlugs, type PostMeta } from "@/lib/content";
+import { Toc } from "@/components/ui/toc";
+import { getHeadings, writingSlugs, type PostMeta } from "@/lib/content";
 import { postMeta } from "@/lib/format";
 
 type PostModule = { default: ComponentType; metadata: PostMeta };
@@ -32,9 +33,11 @@ export default async function WritingPost({
   const { default: Post, metadata } = (await import(
     `@/content/writing/${slug}.mdx`
   )) as PostModule;
+  const headings = getHeadings("writing", slug);
 
   return (
     <Container className="pb-24 pt-[76px]">
+      <Toc headings={headings} />
       <BackLink href="/writing">Writing</BackLink>
       <header className="mb-12 mt-8">
         <h1 className="mb-4 font-serif text-[clamp(30px,5vw,44px)] font-normal leading-[1.12] tracking-[-0.02em] [text-wrap:balance]">

@@ -107,6 +107,10 @@ a {
   margin-top: 2.2em;
   text-wrap: balance;
 }
+/* Offset TOC / hash jumps so the sticky nav doesn't cover the heading. */
+.prose :is(h2, h3)[id] {
+  scroll-margin-top: 92px;
+}
 .prose h3 {
   font-family: var(--font-sora), sans-serif;
   font-size: 16px;
