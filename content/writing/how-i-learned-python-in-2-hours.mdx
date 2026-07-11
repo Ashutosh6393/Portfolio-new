@@ -1,0 +1,911 @@
+export const metadata = {
+  title: "How I learned Python in 2 hours",
+  date: "2026-07-11",
+  readingTime: "14 min",
+  summary:
+    "A first-principles, JavaScript-to-Python speedrun — everything I needed to read and understand Python code, and build a small FastAPI app, in about two hours.",
+};
+
+Let me set the context first. I wanted to learn Agentic AI, and for that Python
+is the first priority — JavaScript works too, but Python is the native language
+for pretty much everything in AI.
+
+So I decided to learn Python. Yeah!
+
+But I already know JavaScript, plus some C++, C#, and a bit of Java — so learning
+Python as a total beginner doesn't make much sense. It'd also be a waste of time
+to pick a YouTube playlist and watch each video one by one, right? I wanted to
+jump straight into building projects as fast as possible — creating agents and,
+more importantly, understanding the Python code.
+
+That's the important part: **understand the Python code**. Of course I'm not
+becoming a Python guru in 2 hours. All I wanted was to understand what's written
+and how it works.
+
+So I took my classic "First Principles" approach and learned only what matters
+most.
+
+> Goal: understand Python code — not become a guru.
+
+Below are the topics that matter most. I got through them in about 2 hours (with
+some side research along the way), and here's the crux of it. Last but not least:
+I used Claude Opus to teach me. Since I come from a JavaScript background, I tried
+to relate Python concepts back to JS, which made everything click faster.
+
+---
+
+## Installation and environment setup
+
+Install Python from the official website, as usual.
+
+### Setting up the environment
+
+The mental model: **npm → uv**. Almost everything you already know transfers.
+
+| JavaScript / npm | Python / uv |
+| --- | --- |
+| `npm init` | `uv init myproject` |
+| `package.json` | `pyproject.toml` |
+| `node_modules/` | `.venv/` |
+| `package-lock.json` | `uv.lock` |
+| `npm install fastapi` | `uv add fastapi` |
+| `npm install -D pytest` | `uv add --dev pytest` |
+| `npm install` (restore from lock) | `uv sync` |
+| `npx ruff` | `uvx ruff` |
+| `node script.js` | `uv run python script.py` |
+| `nvm` (node version manager) | `uv python pin 3.13` (built in — no separate tool) |
+
+That last row is a bonus: uv manages Python versions *itself*, so you don't need
+a pyenv/nvm equivalent. (You installed Python from the site, which is fine — but
+uv could've handled that too.)
+
+### Step by step, on a fresh machine
+
+**1. Install uv (one time, global — like installing Node itself):**
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Restart your shell, then confirm: `uv --version`.
+
+**2. Scaffold the project (your `npm init`):**
+
+```bash
+uv init weather-api
+cd weather-api
+```
+
+This creates:
+
+```plain text
+weather-api/
+├── .python-version     # pins Python version (like .nvmrc)
+├── .gitignore          # already ignores .venv/
+├── README.md
+├── main.py             # entry point
+└── pyproject.toml      # your package.json
+```
+
+**3. Pin your Python version (optional but professional):**
+
+```bash
+uv python pin 3.13
+```
+
+**4. Add dependencies (your `npm install`):**
+
+```bash
+uv add fastapi httpx
+uv add --dev pytest ruff
+```
+
+The first `uv add` auto-creates `.venv/`, writes the packages into
+`pyproject.toml`, and generates `uv.lock` — all in one step. No manual "activate
+the environment" ritual.
+
+**5. Run code (your `node script.js`):**
+
+```bash
+uv run python main.py
+```
+
+`uv run` executes inside the project's `.venv` automatically and syncs first if
+needed — you never manually activate the venv. This is the big quality-of-life
+win over the old way.
+
+**6. What to commit vs. ignore:**
+
+Commit `pyproject.toml`, `uv.lock`, and `.python-version`. Git-ignore `.venv/`
+(it's already in the generated `.gitignore`). A teammate then clones and runs one
+command — `uv sync` — and gets your exact environment.
+
+### The old way
+
+```bash
+python -m venv .venv
+source .venv/bin/activate # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+That's the full loop closed: `venv` (isolation), `pip` (install), and
+`requirements.txt` (the shared list) — so now you know both the modern tool and
+the primitives underneath it.
+
+---
+
+## The syntax that bites a JS dev immediately
+
+Same mental model, different surface. The big one: **indentation replaces
+braces**. Whitespace *is* the syntax.
+
+| JavaScript | Python |
+| --- | --- |
+| `let x = 5` / `const x = 5` | `x = 5` (no keyword; CONSTANTS are just uppercase by convention) |
+| `// comment` | `# comment` |
+| `` `Hi ${name}` `` | `f"Hi {name}"` |
+| `null` / `undefined` | `None` |
+| `true` / `false` | `True` / `False` |
+| `&&` `\|\|` `!` | `and` `or` `not` |
+| `===` | `==` (value) — `is` only for identity/None |
+| `arr.length` | `len(arr)` |
+| `console.log(x)` | `print(x)` |
+| `a ? b : c` | `b if a else c` |
+| `{ ... }` block | `:` then indented block |
+| `i++` | `i += 1` (no `++`) |
+
+Truthiness is broader than JS: an empty list `[]`, empty dict `{}`, empty string
+`""`, `0`, and `None` are all falsy.
+
+### dict
+
+A Python `dict` is written like a JS object literal but behaves like a JS `Map`:
+any hashable key, no prototype baggage. The trap for JS devs: **no dot access.**
+
+```python
+user = {"name": "Ada", "age": 30}
+
+user["name"]              # "Ada"  ← brackets only. user.name FAILS.
+user.get("email")         # None   ← safe, no crash on missing key
+user.get("email", "-")    # "-"    ← with a default
+user["email"] = "a@b.c"   # add or update
+"age" in user             # True   ← key membership
+del user["age"]           # remove
+
+for k, v in user.items():  # iterate key+value
+    print(k, v)
+```
+
+`user.name` doesn't error the way you'd hope — Python goes looking for an
+*attribute* called `name` and throws `AttributeError`. Always brackets, or
+`.get()` when the key might be missing. `.keys()`, `.values()`, and `.items()`
+are your `Object.keys/values/entries`.
+
+### Comprehensions — the Pythonic superpower
+
+This is `.map`/`.filter` folded into syntax. Once it clicks you'll reach for it
+constantly.
+
+```python
+nums = [1, 2, 3, 4]
+
+[n * 2 for n in nums]              # → [2,4,6,8]      (map)
+[n for n in nums if n % 2 == 0]    # → [2,4]          (filter)
+{n: n * n for n in nums}           # → {1:1,2:4,...}  (dict comprehension)
+```
+
+JS equivalents: `nums.map(n => n*2)` and `nums.filter(n => n%2===0)`.
+
+### JSON — trivial once dict makes sense
+
+`dict` ↔ JSON is the natural pairing:
+
+```python
+import json
+
+obj = json.loads('{"name": "Ada"}')   # JSON.parse  → dict
+text = json.dumps(obj)                 # JSON.stringify → str
+json.dumps(obj, indent=2)              # pretty-printed
+```
+
+(One gotcha to just file away for later: never use a mutable value like `[]` as a
+function's default argument — it's shared across calls. Bites everyone once.)
+
+---
+
+## Conditionals and loops
+
+```python
+if age < 13:
+    tier = "child"
+elif age < 18:          # else if → elif  (the one that trips JS devs)
+    tier = "teen"
+else:
+    tier = "adult"
+```
+
+`elif`, not `else if`. Parens around the condition are optional and usually
+omitted. Use `and`/`or`/`not` instead of `&&`/`||`/`!`. The ternary you've
+already used: `tier = "adult" if age >= 18 else "child"`.
+
+Two things JS doesn't have:
+
+```python
+if 0 <= age < 18:       # chained comparison — reads like math, no && needed
+    ...
+
+if name:                # truthiness: empty str/list/dict, 0, None are all falsy
+    ...
+```
+
+### match / case — the `switch`
+
+Python 3.10+ (I'm on 3.14), and it's more powerful than JS `switch` — it
+pattern-matches, not just equality:
+
+```python
+match command:
+    case "start":
+        run()
+    case "stop" | "halt":       # multiple values, like fallthrough cases
+        halt()
+    case _:                     # default (the underscore = "anything")
+        print("unknown")
+```
+
+No `break` needed — cases don't fall through the way JS ones do. For simple value
+checks a plain `if/elif` chain is still idiomatic; reach for `match` when
+branching on shape/structure.
+
+### Loops
+
+`for` is JS's `for...of` — it iterates values, never indices:
+
+```python
+for city in cities:              # for (const city of cities)
+    print(city)
+
+for i in range(5):               # 0,1,2,3,4  → your C-style counting loop
+    print(i)
+
+range(2, 10, 2)                  # start, stop, step → 2,4,6,8 (stop exclusive)
+```
+
+The two you'll reach for constantly:
+
+```python
+for i, city in enumerate(cities):        # index + value (JS: cities.entries())
+    print(i, city)
+
+for city, temp in zip(cities, temps):    # walk two lists in parallel — no JS built-in
+    print(city, temp)
+
+for key, value in weather.items():       # dict iteration
+    print(key, value)
+```
+
+`while`, `break`, and `continue` are identical to JS:
+
+```python
+while queue:              # loops while queue is non-empty (truthiness)
+    item = queue.pop()
+    if item == "skip":
+        continue
+    if item == "stop":
+        break
+```
+
+### Two Python-only quirks
+
+**`for...else`** — the `else` runs only if the loop finished *without* hitting
+`break`. Handy for search loops, and there's no JS equivalent:
+
+```python
+for user in users:
+    if user.name == "Ada":
+        print("found")
+        break
+else:
+    print("not found")     # runs only if the loop never broke
+```
+
+**No `do...while`.** Emulate it with `while True` + a `break`:
+
+```python
+while True:
+    answer = get_input()
+    if answer:            # condition checked at the bottom
+        break
+```
+
+---
+
+## Functions
+
+Defining a function is `def name(args):` — here's everything a JS dev needs to
+know about the parts that differ.
+
+### Default and keyword arguments
+
+```python
+def greet(name, greeting="Hi"):      # default arg, like JS default params
+    return f"{greeting}, {name}"
+
+greet("Ada")                 # "Hi, Ada"
+greet("Ada", "Yo")           # positional
+greet("Ada", greeting="Yo")  # keyword argument
+greet(greeting="Yo", name="Ada")   # order doesn't matter when named
+```
+
+Keyword arguments are a big deal in Python — you pass args *by name*, in any
+order. JS fakes this with an options object `({ name, greeting })`; Python has it
+natively, and libraries like FastAPI lean on it heavily.
+
+`*args` / `**kwargs` are the rest/spread cousins:
+
+```python
+def f(*args, **kwargs):
+    print(args)      # tuple of extra positional args
+    print(kwargs)    # dict of extra keyword args
+
+f(1, 2, x=3)         # args=(1, 2)   kwargs={'x': 3}
+```
+
+`*args` ≈ JS rest `...args`. `**kwargs` collects extra *named* args into a dict —
+no clean JS equivalent.
+
+### Type hints — the one that matters most for later
+
+```python
+def greet(name: str, greeting: str = "Hi") -> str:
+    return f"{greeting}, {name}"
+```
+
+If you've touched TypeScript, this is the same idea: `name: str`, return type
+after `->`. The crucial difference from TS: **Python does not enforce these at
+runtime** — they're annotations. Your editor reads them, type checkers
+(`mypy`/`ty`) read them, and — the reason this matters so much — **Pydantic and
+FastAPI read them to validate data automatically**.
+
+The common ones, with TS equivalents:
+
+```python
+name: str            # string
+age: int             # number (integer)
+price: float         # number (decimal)
+active: bool         # boolean
+tags: list[str]      # string[]
+user: dict[str, int] # object with str keys → int values
+maybe: str | None    # string | null
+```
+
+Python 3.10+ uses `|` for unions exactly like TS, and I'm on 3.14, so all of this
+works.
+
+### The `if __name__ == "__main__":` guard
+
+You'll see this at the bottom of almost every Python file, so let me explain it.
+`__name__` is a built-in variable Python sets automatically. When you run a file
+directly (`python file.py`) it equals `"__main__"`; when the file is *imported* by
+another file, it equals the module's name instead. So the block means: run
+`main()` only when this file is the entry point, not when someone imports it. The
+JS bridge: it's Node's `if (require.main === module)`, or `import.meta.main` in
+Bun/Deno.
+
+```python
+def main():
+    ...
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+## Classes
+
+### Plain classes
+
+The JS class you know, with three surface changes:
+
+```python
+class User:
+    def __init__(self, name: str, age: int):   # constructor
+        self.name = name                        # this.name = name
+        self.age = age
+
+    def greet(self) -> str:
+        return f"Hi, {self.name}"
+
+u = User("Ada", 30)     # no `new` keyword
+u.greet()               # "Hi, Ada"
+```
+
+Three things to internalize coming from JS:
+
+- `constructor` → `__init__` (a "dunder" = double-underscore method; Python calls
+  these automatically).
+- `this` → `self`, and here's the one that catches JS devs: **`self` is an
+  explicit first parameter on every method.** You *write* `def greet(self)` but
+  *call* `u.greet()` — Python passes the instance in for you.
+- No `new`. You call the class like a function: `User("Ada", 30)`.
+
+### Dataclasses — the part you'll actually use
+
+Notice the plain class made you type each field name three times (param,
+`self.x`, `= x`). A dataclass generates all that boilerplate from the type
+declarations:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class User:
+    name: str
+    age: int
+
+u = User("Ada", 30)
+print(u)                 # User(name='Ada', age=30)   ← __repr__ for free
+u == User("Ada", 30)     # True                        ← value equality for free
+```
+
+You declare the fields with types and Python builds `__init__`, `__repr__`, and
+`__eq__` for you. If you've written TypeScript classes with parameter properties,
+this is that same "declare fields, get a constructor" feeling.
+
+That `@dataclass` on top is a **decorator** — a function that wraps the class
+below it and returns an enhanced version (`@dataclass` is literally
+`User = dataclass(User)`). If you've touched NestJS or Angular (`@Injectable()`,
+`@Component()`), it's the exact same idea. Worth getting comfortable with now,
+because **FastAPI defines routes with decorators** (`@app.get(...)`) — you'll see
+this in the FastAPI section.
+
+Defaults and methods work as you'd expect:
+
+```python
+@dataclass
+class User:
+    name: str
+    age: int = 0                    # default value
+
+    def is_adult(self) -> bool:     # methods live right in the class
+        return self.age >= 18
+```
+
+**Why this is the linchpin:** Pydantic's models (coming up in the FastAPI
+section) look *almost identical* to a dataclass — same field-with-type syntax —
+but add automatic runtime validation. So once dataclasses click, Pydantic is "a
+dataclass that also checks its data." You're building straight toward the API.
+
+### Inheritance ("is-a")
+
+Same concept as JS `extends`, with three syntax changes:
+
+```python
+@dataclass
+class User:
+    name: str
+    age: int
+
+    def is_adult(self) -> bool:
+        return self.age >= 18
+
+    def describe(self) -> str:
+        return f"{self.name}, age {self.age}"
+
+
+@dataclass
+class Admin(User):              # Admin extends User → class Admin(User)
+    role: str = "admin"         # adds a new field on top of User's
+
+    def describe(self) -> str:              # override the parent method
+        base = super().describe()           # call User's version
+        return f"{base} [{self.role}]"
+
+
+a = Admin("Ada", 30, "superadmin")
+a.is_adult()          # True   ← inherited method, for free
+a.describe()          # "Ada, age 30 [superadmin]"
+isinstance(a, User)   # True   ← an Admin is also a User
+```
+
+The bridges:
+
+- `class Admin extends User` → `class Admin(User)` (parentheses, no `extends`
+  keyword).
+- `super.describe()` → `super().describe()` — note the **parentheses on
+  `super()`**; it returns a proxy to the parent.
+- `a instanceof User` → `isinstance(a, User)`.
+
+With a dataclass, the constructor is auto-generated to take **inherited fields
+first, then new ones** — so `Admin(name, age, role)`. You don't write
+`super().__init__()` yourself. But in a *plain* class you do, exactly like JS:
+
+```python
+class Admin(User):
+    def __init__(self, name, age, role):
+        super().__init__(name, age)   # run User's constructor (JS: super(name, age))
+        self.role = role
+```
+
+**Why it matters:** a Pydantic model is just a class that inherits from
+`BaseModel`. So `class User(BaseModel):` is this exact pattern — you already know
+it now.
+
+### Composition ("has-a")
+
+Instead of *being* a kind of something, an object *holds* other objects as
+fields:
+
+```python
+@dataclass
+class Address:
+    city: str
+    country: str
+
+@dataclass
+class User:
+    name: str
+    age: int
+    address: Address        # a User HAS-A Address
+
+u = User("Ada", 30, Address("Lucknow", "India"))
+u.address.city              # "Lucknow"  ← reach into the nested object
+```
+
+`Admin` **is-a** `User` (inheritance); `User` **has-a** `Address` (composition).
+The rule devs repeat — *favor composition over inheritance* — is because deep
+inheritance trees get rigid, while composing small objects stays flexible.
+
+---
+
+## Async / await, asyncio
+
+### Core syntax + the lazy-coroutine gotcha
+
+```python
+import asyncio
+
+async def hello() -> str:      # async function f()  → async def f():
+    return "hi"
+
+hello()               # <coroutine object hello at 0x...>  ← did NOT run!
+```
+
+That's the break. In JS, calling `hello()` immediately *starts* the function and
+hands you a Promise that's already executing. In Python, calling an `async def`
+runs **nothing** — it just builds a coroutine object that sits there inert until
+something drives it. Two ways to actually run it:
+
+```python
+await hello()          # "hi"  — but only works *inside* another async function
+asyncio.run(hello())   # "hi"  — from normal top-level code; starts the event loop
+```
+
+`asyncio.run(...)` is the piece with no JS equivalent: it boots the event loop,
+runs your coroutine to completion, and tears the loop down. In JS the loop is
+always there in the background; in Python you start it explicitly, and you call
+`asyncio.run()` **once**, at your program's entry point.
+
+```python
+async def main():
+    result = await hello()
+    print(result)
+
+asyncio.run(main())     # the one entry point
+```
+
+`await` inside `main` works the same as JS. `asyncio.sleep(1)` is your
+`await new Promise(r => setTimeout(r, 1000))` — but note the unit is **seconds,
+not milliseconds**.
+
+### Why async is worth it: concurrency
+
+Here's the payoff, and the thing that's genuinely hard to see from code because
+the two versions look almost identical:
+
+```python
+# Sequential — await one, then the next. Total ≈ 3s.
+a = await fetch(url1)
+b = await fetch(url2)
+c = await fetch(url3)
+
+# Concurrent — all three in flight at once. Total ≈ 1s.
+a, b, c = await asyncio.gather(fetch(url1), fetch(url2), fetch(url3))
+```
+
+`asyncio.gather(...)` is your `Promise.all([...])` — with one difference: you
+pass the awaitables as separate arguments, not as a single list. The two snippets
+look nearly identical, but in time they're very different: the sequential version
+waits for each call to finish before starting the next, while `gather` fires all
+three at once. That's the whole reason to bother with async — same three calls,
+3× faster when they're I/O-bound (network requests). The catch: this only works
+if the thing you're awaiting is *actually* async. A normal blocking call inside
+an `async def` still freezes everything — and that's where `httpx` comes in.
+
+---
+
+## httpx and FastAPI
+
+You already installed httpx (`uv add httpx`). It has both a sync and an async
+client; the async one is what pairs with everything above. Here's a real call
+against a keyless weather API — the exact shape our little weather app needs:
+
+```python
+import asyncio
+import httpx
+
+async def get_temp(lat: float, lon: float) -> float:
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {"latitude": lat, "longitude": lon, "current": "temperature_2m"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, params=params)   # like: await fetch(url)
+        data = resp.json()                             # like: await resp.json()  (but no await here)
+        return data["current"]["temperature_2m"]
+
+async def main():
+    temp = await get_temp(26.85, 80.95)   # Lucknow
+    print(f"Current temp: {temp}°C")
+
+asyncio.run(main())
+```
+
+Three things to notice against JS `fetch`:
+
+- `async with httpx.AsyncClient() as client:` — this is a **context manager**. It
+  opens the client and *guarantees* it closes when the block ends, even on error
+  — like a built-in `try/finally`. The `async` version is needed because closing
+  involves awaiting. Rough JS analogue: `await using client = ...`, or a manual
+  `try { ... } finally { await client.aclose() }`.
+- `resp.json()` has **no `await`** — in httpx the body is already downloaded by
+  the time `await client.get()` returns, so parsing is synchronous. (In JS,
+  `resp.json()` is itself async. Small but easy to trip on.)
+- `params={...}` builds the query string for you
+  (`?latitude=...&longitude=...`) — same idea as `axios`'s `params`.
+
+### FastAPI
+
+First, add the server (you have `fastapi` and `httpx`, but need the thing that
+actually runs it):
+
+```bash
+uv add "uvicorn[standard]"
+```
+
+### The mental model: FastAPI ≈ Express, but the types do real work
+
+In Express you write `app.get("/", (req, res) => res.json(...))` and validate the
+body by hand. FastAPI reads your **type hints** to route, parse, validate, and
+even document — automatically. The annotations you thought were just editor hints
+now enforce things at runtime.
+
+A minimal app:
+
+```python
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"message": "hello"}     # a dict → auto-serialized to JSON, no res.json()
+```
+
+Bridges: `app = FastAPI()` is `app = express()`. `@app.get("/")` is your
+`app.get("/", handler)` — the **decorator** *is* the routing (this is exactly the
+decorator idea from the dataclass section). And returning a dict auto-converts to
+a JSON response; you never touch a `res` object.
+
+Run it:
+
+```bash
+uv run uvicorn main:app --reload
+```
+
+`main:app` means "the `app` variable inside `main.py`" (module:variable).
+`--reload` is nodemon. Now open **http://127.0.0.1:8000/docs** — FastAPI
+generated interactive API documentation from your code. You can fire requests at
+your endpoints right there in the browser, no Postman or curl. Express gives you
+nothing like this for free; it's the feature that sells people.
+
+### Pydantic models
+
+A Pydantic model looks just like your dataclass, but it **validates**:
+
+```python
+from pydantic import BaseModel
+
+class WeatherRequest(BaseModel):     # inherits BaseModel — the inheritance you learned
+    latitude: float
+    longitude: float
+```
+
+It's "a dataclass that checks its data." Feed it a string where a `float` is
+expected and it raises a validation error instead of silently continuing.
+
+### The POST endpoint — your `get_temp` becomes an API
+
+Now the convergence. You type-hint the request parameter as your model, and
+FastAPI parses the incoming JSON body into it, validated:
+
+```python
+@app.post("/weather")
+async def get_weather(req: WeatherRequest):
+    temp = await get_temp(req.latitude, req.longitude)   # your async httpx code
+    return {"temperature": temp}
+```
+
+Everything you built is doing a job here:
+
+- `req: WeatherRequest` — FastAPI reads the type hint, parses the POST body's JSON
+  into a `WeatherRequest`, and **auto-returns a 422 error** if `latitude` is
+  missing or not a number. You wrote zero validation code.
+- `req.latitude` — dot access, because `req` is a model *object*, not a dict.
+- `async def` + `await get_temp(...)` — your async code from earlier runs
+  unchanged inside the handler. FastAPI is async-native; it awaits your coroutine
+  on its event loop, so one slow weather call doesn't block other incoming
+  requests.
+
+---
+
+## Data structures
+
+Python's built-in data structures split cleanly into **mutable** (can be changed
+in place) and **immutable** (can't):
+
+| Type | JS bridge | Mutable? |
+| --- | --- | --- |
+| `list` | `Array` | ✅ mutable |
+| `dict` | `Map` / object | ✅ mutable |
+| `set` | `Set` | ✅ mutable |
+| `bytearray` | `Uint8Array` | ✅ mutable |
+| `tuple` | readonly array | ❌ immutable |
+| `frozenset` | readonly Set | ❌ immutable |
+| `str` | string | ❌ immutable |
+| `int` `float` `bool` | number / boolean | ❌ immutable |
+| `None` | `null` | ❌ immutable |
+
+The split isn't new to you — JS has the same idea, just with fewer types:
+primitives (number, string, boolean) are immutable, objects/arrays are mutable.
+Python just has more members on each side.
+
+### Quick tour of the containers
+
+**`list`** — ordered, mutable, allows duplicates. Your `Array`.
+`append`/`pop`/`insert`/`remove`, slicing, comprehensions.
+
+**`tuple`** — ordered but **immutable and fixed-size**. `(1, 2, 3)`. No real JS
+equivalent (closest is a TS `readonly` tuple). Three real uses:
+
+```python
+point = (26.85, 80.95)        # a fixed record
+lat, lon = point              # unpacking (destructuring)
+def bounds(): return lo, hi   # returning multiple values → a tuple
+```
+
+**`dict`** — key→value, mutable. Keys must be *hashable* (more on that below).
+Your `Map`.
+
+**`set`** — unordered collection of **unique** values, mutable. Fast membership
+tests, dedup, and set algebra:
+
+```python
+a = {1, 2, 3}
+b = {3, 4}
+a | b      # union → {1,2,3,4}
+a & b      # intersection → {3}
+3 in a     # membership, very fast
+```
+
+One gotcha: `{}` is an empty **dict**, not a set. An empty set is `set()`.
+
+**`frozenset`** — an immutable `set`. Matters only because it can be a dict key or
+live inside another set (a normal set can't).
+
+**`str`** — an immutable sequence of characters. Any "mutation" returns a *new*
+string — identical to JS, where `s.toUpperCase()` doesn't change `s`.
+
+**Scalars** (`int`, `float`, `bool`, `None`) — immutable, like JS primitives.
+
+### The concept: what mutability actually does
+
+An **immutable** object can never change — "modifying" it builds a new object. A
+**mutable** object can change *in place*: same object, new contents. Python gives
+every object an identity you can see with `id(x)` (think: its memory address /
+reference identity).
+
+The place this bites: **assignment copies the reference, not the object.**
+
+```python
+a = [1, 2, 3]
+b = a           # b points at the SAME list, no copy made
+b.append(4)
+print(a)        # [1, 2, 3, 4]  ← a changed too!
+a is b          # True  ← same object
+```
+
+That's aliasing, and you already know it from JS (`const b = a` on an array does
+the same). The reason it feels sharper in Python is that immutable types quietly
+*don't* behave this way:
+
+```python
+x = 5
+y = x
+x += 1          # int is immutable → this builds a NEW int and rebinds x
+print(y)        # 5  ← y untouched
+```
+
+With the list, `+=`/`append` mutated the shared object. With the int, `+=`
+couldn't mutate (ints are immutable), so it made a new object and pointed `x` at
+it — leaving `y` alone. Same operator, opposite outcome, entirely because of
+mutability.
+
+**`is` vs `==`:** `==` compares *values*, `is` compares *identity* (same object).
+For your own data always use `==`; reserve `is` for `None`, which is the
+idiomatic check you'll see everywhere:
+
+```python
+if result is None:      # not `== None`
+    ...
+```
+
+**Copying** — when you actually want an independent list:
+
+```python
+b = a.copy()      # or a[:]  → a fresh list, separate object (shallow)
+import copy
+b = copy.deepcopy(a)   # also copies nested objects inside
+```
+
+A shallow copy duplicates the outer container but still shares the nested objects
+inside it; `deepcopy` goes all the way down.
+
+### Why the split earns its keep
+
+Two concrete payoffs, both things you've already brushed against:
+
+**1. Only immutable things can be dict keys or set members.** Keys must be
+*hashable*, and mutable objects aren't. This is the entire reason `tuple` exists
+as a separate type from `list`:
+
+```python
+locations = {(26.85, 80.95): "Lucknow"}   # tuple key ✓
+locations[(26.85, 80.95)]                  # "Lucknow"
+{[26.85, 80.95]: "Lucknow"}                # TypeError: unhashable type: 'list'
+```
+
+**2. The mutable-default footgun, finally explained.** Remember I said never use
+`[]` as a default argument? Here's why:
+
+```python
+def add(item, items=[]):      # ⚠️ the [] is created ONCE, at definition time
+    items.append(item)
+    return items
+
+add("a")    # ['a']
+add("b")    # ['a', 'b']  ← the SAME list persisted across calls!
+```
+
+The default list is one mutable object, built when the function is defined and
+shared by every call. The fix uses an immutable sentinel:
+
+```python
+def add(item, items=None):
+    if items is None:
+        items = []
+    items.append(item)
+    return items
+```
+
+---
+
+Yeah! That's all you need to understand pretty much any Python codebase — and you
+can always fall back to the official docs when needed. Two libraries worth
+digging into more:
+
+- Pydantic
+- FastAPI
