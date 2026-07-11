@@ -126,6 +126,8 @@ The "primary" role in this system is the **ink** — the text color that carries
 
 **The Warm-Neutral Rule.** Nothing is pure. Never `#ffffff` ink, never `#000000` surface, never a cool gray. Every neutral carries a trace of warmth; that trace is the identity.
 
+**The Code-Block Exception.** Fenced code blocks in long-form writing are the *one* sanctioned break from No-Accent. Two allowances, code blocks only, nowhere else: (1) a macOS-style window frame — an `8px`-radius container with the standard traffic-light dots (`#ff5f56` / `#ffbd2e` / `#27c93f`); and (2) a restrained, warm, low-saturation syntax palette (comment / keyword / string / number tokens tuned per theme). Everything not tokenized stays ink. This exception never leaks into UI chrome, links, or any surface outside a `.code-block`.
+
 ## 3. Typography
 
 **Display Font:** Newsreader (with Georgia, serif fallback)

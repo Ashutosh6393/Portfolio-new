@@ -1,0 +1,32 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-radius",
+        "value": "8px",
+        "reason": "User-confirmed macOS code-block window frame (DESIGN.md Code-Block Exception)",
+        "createdAt": "2026-07-11T12:55:02.805Z"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#ff5f56",
+        "reason": "macOS traffic-light dot (DESIGN.md Code-Block Exception)",
+        "createdAt": "2026-07-11T12:55:08.961Z"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#ffbd2e",
+        "reason": "macOS traffic-light dot (DESIGN.md Code-Block Exception)",
+        "createdAt": "2026-07-11T12:55:09.170Z"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#27c93f",
+        "reason": "macOS traffic-light dot (DESIGN.md Code-Block Exception)",
+        "createdAt": "2026-07-11T12:55:09.505Z"
+      }
+    ]
+  }
+}

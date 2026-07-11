@@ -18,6 +18,18 @@ const components: MDXComponents = {
   },
   // eslint-disable-next-line @next/next/no-img-element
   img: (props) => <img loading="lazy" decoding="async" {...props} />,
+  // Wrap code blocks in a macOS-style window frame. The dot bar sits outside the
+  // <pre> so it stays put when long lines scroll horizontally.
+  pre: (props) => (
+    <div className="code-block">
+      <div className="code-block__bar" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <pre {...props} />
+    </div>
+  ),
 };
 
 export function useMDXComponents(): MDXComponents {

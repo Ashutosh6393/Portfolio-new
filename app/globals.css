@@ -165,7 +165,6 @@ a {
   height: auto;
   border: 1px solid var(--border);
 }
-/* Monochrome code — colored syntax tokens would break the No-Accent rule. */
 .prose :not(pre) > code {
   font-family: var(--font-mono), monospace;
   font-size: 0.85em;
@@ -174,18 +173,131 @@ a {
   border-radius: 4px;
   padding: 0.1em 0.4em;
 }
-.prose pre {
+
+/* ---- Tables: hairline specimen grid ---------------------------------- */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.prose thead th {
+  text-align: left;
+  font-family: var(--font-mono), monospace;
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 0.9em 0.7em 0;
+  border-bottom: 1px solid var(--border);
+}
+.prose tbody td {
+  padding: 0.65em 0.9em;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--text);
+  opacity: 0.85;
+}
+.prose th:first-child,
+.prose td:first-child {
+  padding-left: 0;
+}
+.prose th:last-child,
+.prose td:last-child {
+  padding-right: 0;
+}
+.prose tbody tr:last-child td {
+  border-bottom: none;
+}
+/* Inline code inside cells: drop the chip so comparison tables stay clean —
+   the mono face alone carries the distinction. */
+.prose td code,
+.prose th code {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* ---- Code blocks: macOS window frame + warm highlighting ------------- */
+/* Code is the one place the No-Accent rule is relaxed (see DESIGN.md). */
+.prose .code-block {
+  background: var(--tag-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.prose .code-block__bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.prose .code-block__bar span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+.prose .code-block__bar span:nth-child(1) {
+  background: #ff5f56;
+}
+.prose .code-block__bar span:nth-child(2) {
+  background: #ffbd2e;
+}
+.prose .code-block__bar span:nth-child(3) {
+  background: #27c93f;
+}
+.prose .code-block pre {
   font-family: var(--font-mono), monospace;
   font-size: 13px;
   line-height: 1.7;
-  background: var(--tag-bg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
+  margin: 0;
   padding: 16px 18px;
   overflow-x: auto;
 }
-.prose pre code {
+.prose .code-block pre code {
   font-family: inherit;
+}
+
+/* Warm, low-saturation syntax palette — "a little" highlighting, tuned per
+   theme. Anything not listed stays ink. */
+[data-theme="dark"] {
+  --hl-comment: #5f5c54;
+  --hl-keyword: #c9a06a;
+  --hl-string: #9caa86;
+  --hl-number: #c98a6a;
+}
+[data-theme="light"] {
+  --hl-comment: #9a968c;
+  --hl-keyword: #9a5b3d;
+  --hl-string: #5f6b47;
+  --hl-number: #8a5a3a;
+}
+.prose .hljs {
+  color: var(--text);
+}
+.prose .hljs-comment,
+.prose .hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+.prose .hljs-keyword,
+.prose .hljs-literal,
+.prose .hljs-built_in,
+.prose .hljs-type,
+.prose .hljs-meta {
+  color: var(--hl-keyword);
+}
+.prose .hljs-string,
+.prose .hljs-regexp,
+.prose .hljs-symbol {
+  color: var(--hl-string);
+}
+.prose .hljs-number,
+.prose .hljs-attr,
+.prose .hljs-attribute {
+  color: var(--hl-number);
 }
 
 /* ---- Reduced motion -------------------------------------------------- */
