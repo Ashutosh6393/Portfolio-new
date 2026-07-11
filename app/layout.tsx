@@ -53,10 +53,9 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
+      data-scroll-behavior="smooth"
       className={`${serif.variable} ${sans.variable} ${mono.variable}  antialiased`}
-      
     >
-      
       <body className="flex min-h-full flex-col flex-1">
         <ThemeProvider
           attribute="data-theme"
