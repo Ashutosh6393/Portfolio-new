@@ -4,7 +4,7 @@ description: A type-specimen portfolio for a full-stack + AI engineer — serif 
 colors:
   ink-dark: "#e0ddd6"
   bg-dark: "#0d0d0d"
-  muted-dark: "#525252"
+  muted-dark: "#8a8a8a"
   subtle-dark: "#2a2a2a"
   border-dark: "#1e1e1e"
   tag-bg-dark: "#161616"
@@ -114,7 +114,7 @@ The "primary" role in this system is the **ink** — the text color that carries
 
 - **Charcoal** (`#0d0d0d`, dark theme background): The night surface. A near-black with a whisper of warmth, calmer than pure black.
 - **Warm Paper** (`#f5f4f0`, light theme background): The day surface. A warm off-white with a paper feel; deliberately not a cool gray-white.
-- **Muted** (`#525252` dark / `#8a8a8a` light): Metadata, monospace notes, section labels, secondary link rest state. The "margin note" gray.
+- **Muted** (`#8a8a8a`, both themes): Metadata, monospace notes, section labels, secondary link rest state. The "margin note" gray. On `#0d0d0d` this is 5.63:1 — WCAG AA needs 4.5:1, so `#7a7a7a` is the darkest permissible value. Do not go below it.
 - **Subtle** (`#2a2a2a` dark / `#dddbd5` light): The default underline color under links — present but nearly invisible until hover.
 - **Border** (`#1e1e1e` dark / `#e0ddd8` light): Every hairline rule, divider, nav border, and badge outline. The connective tissue of the whole layout.
 - **Tag Surface** (`#161616` dark / `#eceae4` light): A barely-raised fill for tag/chip backgrounds when a filled treatment is wanted.
