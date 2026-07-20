@@ -2,35 +2,19 @@ import { ImageResponse } from "next/og";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { profile } from "@/content/profile";
+import { loadGoogleFont, size } from "@/lib/og";
 
 // Node runtime so we can read the photo off disk with fs.
 export const runtime = "nodejs";
 
 export const alt = `${profile.name} — ${profile.role}`;
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+export { size, contentType } from "@/lib/og";
 
 const domain = new URL(profile.url).host;
 const initials = profile.name
   .split(" ")
   .map((part) => part[0])
   .join("");
-
-// Load a Google font as a TTF ArrayBuffer for satori. Sending no User-Agent
-// makes the css2 endpoint return truetype (a modern UA returns woff/woff2,
-// which satori can't parse); the `text` subset keeps the download tiny.
-async function loadGoogleFont(family: string, weight: number, text: string) {
-  const url = `https://fonts.googleapis.com/css2?family=${family.replace(
-    / /g,
-    "+",
-  )}:wght@${weight}&text=${encodeURIComponent(text)}`;
-  const css = await (await fetch(url)).text();
-  const src = css.match(
-    /src: url\((.+?)\) format\('(?:opentype|truetype)'\)/,
-  )?.[1];
-  if (!src) throw new Error(`Could not resolve font: ${family}`);
-  return (await fetch(src)).arrayBuffer();
-}
 
 // The profile photo as a data URI, or null if it isn't present.
 async function loadPhoto(): Promise<string | null> {
