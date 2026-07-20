@@ -1,0 +1,76 @@
+export const metadata = {
+  title: "Scaffold-AI",
+  summary:
+    "A drop-in scaffold for AI-driven development. Rules, hooks, skills, and a spec workflow agents can resume across sessions, so setup is a copy-paste instead of a weekend.",
+  stack: ["Claude Code", "Spec Driven Development", "Loops", "Context"],
+  status: "shipped",
+  repo: "https://github.com/Ashutosh6393/Scaffold-AI/", // TODO: real source-code URL
+  show: true,
+  order: 1,
+};
+
+Every repo I set up for agent work ended with me rebuilding the same four things:
+instructions, guardrails, a spec format, and some way to pick up after `/clear`.
+Scaffold-AI is those four things, packaged.
+
+## The problem
+
+Setting up AI-driven development is mostly plumbing, and the plumbing leaks in
+predictable places.
+
+- You write a `CLAUDE.md`. Someone renames a folder. Now it lies.
+- You write rules. They load on every session and eat the context budget.
+- You say "don't edit tests." On attempt three, the agent edits a test.
+- You clear the context. The agent forgets what it was doing.
+
+Then you start the next project and do all of it again.
+
+## The workflow
+
+```
+issue / chat  ──►  to-adr  ──►  to-spec  ──►  implement  ──►  PR  ──►  CI review
+                      │            │              │
+                  docs/adr/     specs/       one slice
+                      │            │              │
+                   [accept]   [approve]       [review]
+```
+
+Three commands, three human gates. Each phase refuses to start without the output
+of the one before it. No spec without an accepted decision, no code without an
+approved plan.
+
+Inside `implement`, one loop per task:
+
+```
+failing test  ──►  minimal code  ──►  test again  ──►  commit
+      ▲                                    │
+      └────────── still red ───────────────┘
+```
+
+Three attempts, or two identical errors, and it stops and asks instead of grinding.
+
+## What's in it
+
+| Piece | What it does |
+| --- | --- |
+| Skills | The three commands above. `to-adr` writes the decision, `to-spec` turns it into a sliced plan, `implement` runs the loop. |
+| Rules | Seven files: git, testing, security, code style, errors, docs, principles. `CLAUDE.md` links to them instead of containing them. A hook reads your prompt and pulls in the ones that match. |
+| Hooks | Where rules stop being suggestions. One blocks writes to `.env` and test files. One fails the slice if the test count drops. One regenerates the docs that would otherwise go stale. |
+| Memory | ADRs record why. `implementation.md` records where you stopped. Both live in git, so a fresh session reads the file instead of the context window. |
+| Spec workflow | Four files per feature: scope and test cases, dependency-ordered tasks, feature context, and a summary written for a human. |
+| Agents | Seven roles on three model tiers. Planning and review get the expensive model. The loop and the chores don't. |
+
+## Two decisions worth the space
+
+**The agent that writes code cannot write tests.** Separate roles, separate tool
+access, and a hook that blocks the call. Left as a sentence in a prompt, this rule
+survives until the model is stuck and weakening an assertion is the fastest way out.
+
+**Retries are capped by progress, not by count.** Two identical errors means the
+problem isn't understood, so a third attempt is a coin flip. The escalation asks
+"is the test wrong?" rather than "try harder," because a wrong test is never fixed
+by rewriting the code.
+
+## Outcome
+
+Setup went from a day of copying files between repos to one `cp -r` and a restart.
