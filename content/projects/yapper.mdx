@@ -15,6 +15,47 @@ underneath. The dashboard refetched on every tab switch and flashed a spinner on
 every navigation, so I replaced the notes data layer with a local-first sync
 engine.
 
+## User flow
+
+Login is mandatory, Google or GitHub, no anonymous notes. After that the
+dashboard splits into two groups: notes you own and notes shared with you.
+
+<Flow
+  title="What a session looks like"
+  rows={[
+    {
+      lead: "owner",
+      nodes: [
+        { label: "OAuth login" },
+        { label: "dashboard" },
+        { label: "new note" },
+        { label: "share link", sub: "view / edit" },
+      ],
+    },
+    {
+      lead: "collaborator",
+      nodes: [
+        { label: "open link" },
+        { label: "OAuth login" },
+        { label: "live edit", sub: "cursors" },
+      ],
+      note: "first open = tracked",
+    },
+  ]}
+  caption="One access level per note — private → view → edit — set by the owner."
+/>
+
+A note is private until the owner shares it. Sharing mints an unguessable
+capability link; whoever opens it still has to log in, and on first open they
+become a tracked collaborator. The owner sets one access level for the whole
+note: view or edit. Editors get live cursors and selections, view-only users
+show up as presence.
+
+Flipping a note back to private is one click. It rotates the share token, marks
+collaborators revoked, and disconnects everyone else mid-session with "note made
+private by owner." The owner stays connected. That single event is what the
+removal-as-view-diff decision below exists to serve.
+
 ## The problem
 
 The UI was always one network round-trip behind the truth.

@@ -9,8 +9,8 @@ export type WorkEntry = {
 
 export const work: WorkEntry[] = [
   {
-    role: "Fullstack Developer",
-    company: "HCLTech",
+    role: "Fullstack  Developer",
+    company: "HCLTech — India",
     period: "2025 — Present",
     summary:
       "Full-stack work on a client commerce app, mostly React on top of Node. I also brought AI-driven development into the team's workflow and built internal agents to speed up the boring parts.",

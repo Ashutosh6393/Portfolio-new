@@ -12,7 +12,7 @@ export const profile = {
   url: "https://ashutoshverma.dev",
   tagline:
     "Full-stack + AI engineer.",
-  bio: "I am a full-stack engineer who ships AI-native products end to end — frontend to backend to deploy. My leverage is architectural: I design the system, use AI aggressively to build it, and get to a working product faster. Comfortable across the stack — TypeScript, React, Node, Python — and equally at home in retrieval systems, agent tooling, and the infra underneath. I learn in public.",
+  bio: "I'm a full-stack engineer who ships AI-native products end to end, frontend to backend to deploy. I design the system, build it fast with AI doing most of the typing, and get to something working quickly. Comfortable across the stack: TypeScript, React, Node, Python. I also build retrieval systems and agent tooling. I learn in public and believe in first principles thinking.",
   resumeUrl: "https://drive.google.com/file/d/14zjVDc3Yduy-TwsZ19hKRa2K0HlBpPPH/view?usp=sharing",
   socials: [
     { label: "GitHub", href: "https://github.com/Ashutosh6393" },
