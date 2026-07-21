@@ -19,19 +19,9 @@ export function WorkSection() {
             <p className="mb-5 font-mono text-[12.5px] text-muted">
               {entry.company}
             </p>
-            <ul className="flex flex-col gap-2.5">
-              {entry.highlights.map((highlight) => (
-                <li
-                  key={highlight}
-                  className="relative pl-[18px] text-[14px] leading-[1.7] text-ink opacity-[0.82]"
-                >
-                  <span className="absolute left-0 text-muted" aria-hidden>
-                    —
-                  </span>
-                  {highlight}
-                </li>
-              ))}
-            </ul>
+            <p className="text-[14px] leading-[1.7] text-ink opacity-[0.82]">
+              {entry.summary}
+            </p>
           </div>
         ))}
       </div>

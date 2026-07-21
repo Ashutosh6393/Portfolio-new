@@ -27,13 +27,22 @@ Then you start the next project and do all of it again.
 
 ## The workflow
 
-```
-issue / chat  ──►  to-adr  ──►  to-spec  ──►  implement  ──►  PR  ──►  CI review
-                      │            │              │
-                  docs/adr/     specs/       one slice
-                      │            │              │
-                   [accept]   [approve]       [review]
-```
+<Flow
+  title="The workflow"
+  rows={[
+    {
+      nodes: [
+        { label: "issue / chat" },
+        { label: "to-adr", sub: "docs/adr" },
+        { label: "to-spec", sub: "specs" },
+        { label: "implement", sub: "one slice" },
+        { label: "PR" },
+        { label: "CI review" },
+      ],
+    },
+  ]}
+  caption="Three commands, three human gates — accept the decision, approve the plan, review the slice. Each phase refuses to start without the output of the one before."
+/>
 
 Three commands, three human gates. Each phase refuses to start without the output
 of the one before it. No spec without an accepted decision, no code without an
@@ -41,11 +50,26 @@ approved plan.
 
 Inside `implement`, one loop per task:
 
-```
-failing test  ──►  minimal code  ──►  test again  ──►  commit
-      ▲                                    │
-      └────────── still red ───────────────┘
-```
+<Flow
+  title="One loop per task"
+  rows={[
+    {
+      nodes: [
+        { label: "failing test" },
+        { label: "minimal code" },
+        { label: "test again" },
+        { label: "commit" },
+      ],
+    },
+    {
+      nodes: [
+        { label: "↺ still red", muted: true },
+        { label: "failing test", op: "→", muted: true },
+      ],
+    },
+  ]}
+  caption="test again loops back on a still-red result; green falls through to commit. Three attempts, or two identical errors, and it stops and asks."
+/>
 
 Three attempts, or two identical errors, and it stops and asks instead of grinding.
 

@@ -1,0 +1,123 @@
+export const metadata = {
+  title: "Yapper",
+  summary:
+    "A collaborative note app on a hand-rolled local-first sync engine. Notes render from IndexedDB and reconcile in the background, so editing is instant and works offline.",
+  stack: ["Local-first", "CRDT", "Sync engine", "Realtime", "Turborepo"],
+  status: "shipped",
+  repo: "https://github.com/Ashutosh6393/Yapper/",
+  show: true,
+  order: 2,
+};
+
+Yapper is a collaborative note app: shared editing, live cursors, and an owner
+who can flip a note back to private in one click. The interesting part is
+underneath. The dashboard refetched on every tab switch and flashed a spinner on
+every navigation, so I replaced the notes data layer with a local-first sync
+engine.
+
+## The problem
+
+The UI was always one network round-trip behind the truth.
+
+- You switch tabs and come back. The list refetches from scratch. The spinner
+  returns.
+- You create a note. The editor waits for the server to mint an id before you
+  can type a character.
+- You make a shared note private. To drop it from everyone else's list, you now
+  owe a tombstone table and a job to garbage-collect it.
+- Your note body is a Yjs CRDT, so the only thing that can persist it is the
+  socket. A private note nobody shares holds a WebSocket open just to save.
+
+Every one of these is the same bug: the server owns the state and the screen is
+downstream of it.
+
+## Two lanes
+
+<Flow
+  title="Two lanes"
+  rows={[
+    {
+      lead: "metadata",
+      nodes: [{ label: "Dexie" }, { label: "queue" }, { label: "/api/sync" }],
+      note: "push + pull",
+    },
+    {
+      lead: "content",
+      nodes: [
+        { label: "y-indexeddb" },
+        { label: "PUT /content", sub: "private" },
+        { label: "Hocuspocus", sub: "shared", op: "or" },
+      ],
+    },
+  ]}
+  caption="Two lanes meet at one note record — title / preview + version bump."
+/>
+
+Metadata and content are split into two lanes that meet at one note record.
+Metadata (title, lifecycle, labels, share level) flows through the engine.
+Content stays a CRDT, because I was not going to reinvent concurrent rich-text
+merge. Exactly one writer touches a note body at a time: REST while it is
+private, Hocuspocus while it is shared, handed off on the share toggle.
+
+The engine itself never writes the view directly.
+
+<Flow
+  title="The reconcile loop"
+  rows={[
+    {
+      nodes: [
+        { label: "user action" },
+        { label: "append to queue" },
+        { label: "rebuild()" },
+        { label: "db.notes", sub: "UI" },
+      ],
+    },
+    {
+      nodes: [
+        { label: "server pull" },
+        { label: "write db.base" },
+        { label: "↺ rebuild()", op: "→", muted: true },
+      ],
+    },
+  ]}
+  caption="rebuild() replays the pending queue over the last server snapshot."
+/>
+
+`rebuild()` replays the pending queue over the last server snapshot. A rejected
+mutation just leaves the queue and vanishes on the next rebuild, so rollback is
+free instead of hand-written.
+
+## What's in it
+
+| Piece | What it does |
+| --- | --- |
+| Dexie store | Three tables. `db.base` is server truth (only the puller writes it), `db.mutations` is the pending queue, `db.notes` is materialized and read by the UI through `useLiveQuery`. |
+| Mutation queue | Named mutators the client applies optimistically and the server re-applies idempotently, de-duped by `lastMutationID` so a retried push never double-applies. |
+| CVR pull | `/api/sync/pull` diffs your current authorized view against the `{id → version}` it last sent. Changed rows come back as `puts`, notes you lost as `dels`. |
+| Content lane | `y-indexeddb` holds bodies offline. `PUT /api/notes/:id/content` persists private notes, Hocuspocus persists shared ones, both writing the same full Yjs blob. |
+| Poke + derive | `/api/sync/stream` (SSE over Redis) nudges clients to pull. One server helper derives `title`/`preview` for both writers and bumps `note_meta.version`. |
+
+## Two decisions worth the space
+
+**I hand-rolled the engine instead of adopting Replicache or Electric.** I took
+the Replicache model, confirmed base plus pending queue plus a materialized
+view, and wrote it against Dexie. A framework would have fought the Yjs,
+Better-Auth, and Drizzle stack already in the repo, and the point was to
+understand the reconcile loop, not vendor it. The failure it avoids is a library
+owning the data layer you cannot debug when a mutation wedges the queue.
+
+**Removals are a view diff, not tombstones.** In Yapper a removal is a
+permission event: an owner goes private, a collaborator is revoked. A
+changed-since-cookie query cannot say "no longer yours" without tombstone rows
+and garbage collection, and that lands exactly where the app is already hardest.
+The client-view record diffs your authorized view against the last snapshot, so
+a revoked note is simply absent and falls into `dels` with zero client code. The
+failure it avoids is a tombstone you forgot to write leaving a dead note on
+someone's screen.
+
+## Outcome
+
+Reads come from IndexedDB, so the list and editor paint on the first frame with
+no navigation spinner, and create, rename, and archive work with the network off
+and reconcile on reconnect. Private notes, the default case, persist over REST
+and never open a socket.

@@ -1,5 +1,6 @@
 import type { MDXComponents } from "mdx/types";
 import { CodeBlock } from "@/components/ui/code-block";
+import { Flow } from "@/components/ui/flow";
 
 // Required by @next/mdx in the App Router. Prose styling lives in the
 // `.prose` block in globals.css so MDX bodies stay clean markdown; here we
@@ -22,6 +23,8 @@ const components: MDXComponents = {
   // macOS-style window frame + copy button. Lives in a client component since
   // the copy interaction needs the browser.
   pre: (props) => <CodeBlock {...props} />,
+  // Pipeline diagrams authored as data, used directly in MDX as <Flow ... />.
+  Flow,
 };
 
 export function useMDXComponents(): MDXComponents {
