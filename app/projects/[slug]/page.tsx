@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import { Container } from "@/components/site/container";
 import { BackLink } from "@/components/site/back-link";
 import { ProjectLinks } from "@/components/ui/project-links";
+import { ShareButton } from "@/components/ui/share-button";
 import { Toc } from "@/components/ui/toc";
 import { getHeadings, projectSlugs, type ProjectMeta } from "@/lib/content";
 import { profile } from "@/content/profile";
@@ -71,11 +72,19 @@ export default async function ProjectPage({
         <p className="font-mono text-[11.5px] text-muted">
           {metadata.stack.join(" · ")}
         </p>
-        <ProjectLinks
-          repo={metadata.repo}
-          demo={metadata.demo}
-          className="mt-4 text-[12.5px]"
-        />
+        <div className="mt-4 flex flex-wrap items-center gap-2.5">
+          <ProjectLinks
+            repo={metadata.repo}
+            demo={metadata.demo}
+            className="text-[12.5px]"
+          />
+          {(metadata.repo || metadata.demo) && (
+            <span aria-hidden className="font-mono text-[12px] text-border">
+              ·
+            </span>
+          )}
+          <ShareButton title={metadata.title} />
+        </div>
       </header>
       <article className="prose">
         <Project />

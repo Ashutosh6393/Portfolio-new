@@ -1,0 +1,502 @@
+export const metadata = {
+  title: "How two people type in the same document without ruining it",
+  date: "2026-07-23",
+  readingTime: "17 min",
+  summary:
+    "Google Docs and Figma let two people edit the same line at the same second and it never breaks. Here is the problem that makes that hard, the obvious fixes that fail, and the two real solutions — operational transformation and CRDTs — explained without jargon.",
+};
+
+Open a Google Doc and share it with a friend. Watch their cursor appear next to
+yours. Type on the same line at the same time, both of you, deliberately trying
+to break it.
+
+It doesn't break. The letters sort themselves out. Nobody gets an error, nobody
+loses a sentence, and after a second the two screens show the same thing.
+
+That looks simple from the outside. It is one of the harder problems in
+software, it took about forty years to solve properly, and there are two
+completely different solutions in wide use today. Neither one is better. They
+fail in different places.
+
+Here's what the problem actually is, why the obvious fixes don't work, and how
+the two real answers earn their keep.
+
+---
+
+## Two people, one document
+
+Forget documents for a second. Picture a shopping list on a fridge, except
+there are two fridges in two houses and both are supposed to show the same
+list.
+
+That's the real setup. When you type in Google Docs, the letter appears on your
+screen instantly. It has to. If every keystroke waited for a round trip to a
+server, typing would feel like wading. So your computer has its own copy of the
+document, it changes that copy immediately, and it tells everyone else
+afterward.
+
+Everyone has their own copy. Everyone changes their copy first and announces it
+second. That's where the trouble starts.
+
+Take a document containing three letters:
+
+```plain text
+CAT
+```
+
+Alice and Bob both have it open. At the same moment:
+
+- Alice adds an `S` at the front. Her screen now shows `SCAT`.
+- Bob deletes the second letter, the `A`. His screen now shows `CT`.
+
+Neither of them did anything wrong. Both edits are reasonable. Both should
+survive.
+
+Now their computers tell each other what happened. Alice's computer sends:
+*"insert `S` at position 0."* Bob's computer sends: *"delete position 1."*
+
+Follow Bob's computer first. It has `CT`. It receives Alice's instruction and
+does exactly what it says: put an `S` at the front. Bob's screen now reads
+`SCT`. Fine.
+
+Now Alice's computer. It has `SCAT`. It receives Bob's instruction: delete
+position 1. Count the letters. `S` is 0, `C` is 1, `A` is 2. Position 1 is the
+`C`.
+
+So it deletes the `C`. Alice's screen now reads `SAT`.
+
+```plain text
+Alice sees:  SAT
+Bob sees:    SCT
+```
+
+Two people, same document, same two edits, two different results. And it's
+worse than just being different. Bob wanted the `A` gone. The `A` is still
+sitting there on Alice's screen. The letter that actually died was the `C`,
+which nobody touched.
+
+The part that makes this genuinely dangerous is what didn't happen. No error
+appeared. No warning box. Both computers followed their instructions perfectly
+and both of them think everything is fine. Alice keeps typing into `SAT` and
+Bob keeps typing into `SCT`, and the two documents drift further apart with
+every keystroke.
+
+The cause is a single sentence, and it's worth reading twice:
+
+> When two people edit at the same time, each one describes their change based
+> on what's on their own screen. By the time that description arrives, the
+> other screen has already moved on. The instruction still runs. It just lands
+> in the wrong place, and nothing warns anyone.
+
+Bob never said "delete the `A`". He said "delete position 1", and position 1
+was only meaningful in the document he was staring at when he pressed the key.
+That document stopped existing the moment Alice typed.
+
+This gives us the two things any real solution has to deliver:
+
+1. **Everybody ends up with the same document.** No drift.
+2. **The document says what people meant.** Bob's `A` is the one that goes.
+
+Hold onto that split. Most of what follows is about systems that manage the
+first one and fail the second.
+
+---
+
+## The obvious fixes, and what each one costs
+
+Before anyone built anything clever, people tried the simple things. Each of
+them works. Each of them charges a price you eventually can't pay.
+
+### Lock the document
+
+Only one person can edit at a time. Everyone else gets a read-only view and
+waits their turn.
+
+This genuinely solves the problem. Two instructions can never cross in the
+post, because there's only ever one person writing.
+
+It also kills the thing you were building. Five people in a meeting, one
+document, and four of them are staring at a grey banner because someone left
+the file open in a tab and went to lunch. Shared network drives worked this way
+for years and everyone hated it.
+
+Worth noting how this fails: loudly. You can see the banner. You know you're
+blocked. Annoying, but honest.
+
+### Send the whole document every time
+
+Let everyone type freely. Whenever anyone changes anything, their computer
+sends the entire document up to the server, which overwrites whatever was
+there. The most recent save wins. This approach has a name, "last writer wins",
+and it's still everywhere.
+
+Run our example. Alice types her `S` and saves. Half a second later Bob saves.
+Bob's copy of the document never contained Alice's `S`, because it was still in
+flight when he hit save. So the server now holds `CT`.
+
+Alice's `S` is gone. It wasn't rejected, it wasn't flagged, it was simply
+written over by a copy of the document that didn't know about it.
+
+Now compare it to the lock. Under a lock, Alice knows she's blocked. Under last
+writer wins, Alice typed her letter, watched it appear on her own screen, saw
+no error, and got on with her day. She finds out on Tuesday, when she opens the
+file and a paragraph is missing, with no idea when it vanished or who to ask.
+
+This one fails silently. Silent failure is worse than loud failure, because
+loud failure at least tells you to look.
+
+### Put everything in one queue
+
+Here's the version that's actually close to right. Nobody locks anything.
+Nobody sends whole documents. Instead, everyone sends just their instruction to
+one server in the middle. That server collects every instruction that arrives,
+puts them in a single line, and tells everybody the order. Everyone then
+applies the instructions in that order.
+
+Alice's insert arrives first, Bob's delete second. The server broadcasts that
+order. Both computers apply Alice's insert to `CAT` to get `SCAT`, then both
+apply Bob's "delete position 1" to `SCAT` to get `SAT`.
+
+Alice sees `SAT`. Bob sees `SAT`. They agree.
+
+Read that again, because it's the interesting failure. The drift is gone. Both
+screens match. And the document is still wrong. Bob's `A` survived, the
+innocent `C` is dead, and now both people have the wrong document instead of
+one of them.
+
+This is where the two goals from earlier separate properly, and where the
+vocabulary starts to matter.
+
+**Convergence** means everyone ends up with the same document. The queue
+delivers this.
+
+**Intent preservation** means the document reflects what people actually meant.
+The queue does not deliver this.
+
+Every solution from here on is an attempt to get both.
+
+The queue has a second cost, too. Every instruction has to reach that one
+server before anybody knows where it belongs. Alice on a plane with no wifi
+keeps typing, and her instructions pile up on her laptop, waiting. When she
+lands and reconnects, they finally get their place in the queue, and they land
+badly, because they were written against a document that moved on two hours
+ago. Same failure as before, just delayed and multiplied.
+
+And if the server goes down, nobody's edits can be applied at all. This is what
+people mean by a **single point of failure**: one component whose death stops
+everything else. The absurd version is five people sitting at the same table on
+the same wifi, laptops within arm's reach of each other, all frozen because a
+machine in another country is offline. Nothing about the problem requires that
+machine. The design does.
+
+---
+
+## Operational transformation: rewrite the instruction when it arrives
+
+Go back to the moment things broke. Bob's "delete position 1" is about to be
+applied to Alice's copy, and we know it'll hit the wrong letter.
+
+But look at what Alice's computer knows at that moment. It knows Bob's
+instruction says position 1. It also knows that it already inserted a character
+at position 0. It has both facts sitting right there.
+
+The insert pushed everything one place to the right. So the letter Bob cares
+about is no longer at position 1. It's at position 2.
+
+So before running Bob's instruction, Alice's computer changes the number.
+Position 1 becomes position 2. Then it runs it.
+
+Apply "delete position 2" to `SCAT` and you get `SCT`. Bob's copy was already
+`SCT`.
+
+```plain text
+Alice sees:  SCT
+Bob sees:    SCT
+```
+
+Both screens agree, and the letter that died is the `A`, which is the letter
+Bob asked for. Convergence and intent, both at once.
+
+That adjustment is the entire idea, and it's where the name comes from. The
+instruction gets **transformed** to fit the document it's arriving at, instead
+of the document it was written against. The technique is called operational
+transformation, usually shortened to OT.
+
+The analogy that makes it stick is directions.
+
+A friend writes down how to get to their house: "take the second left." While
+you're driving over, the council opens a new street. The turn your friend meant
+is now the third left, not the second.
+
+You don't rebuild the road. You don't call your friend and ask them to rewrite
+the note. You cross out "second" and write "third", then drive. The destination
+never changed. Only the wording had to.
+
+That's OT. The person receiving the instruction fixes it. The sender never
+finds out it happened.
+
+This is not a whiteboard idea. Google Wave shipped on it, and when Wave died
+the technology moved into Google Docs, where it has been running for well over
+fifteen years across hundreds of millions of users.
+
+---
+
+## Where OT works, and where it breaks
+
+### What it's good at
+
+Almost nothing goes over the wire. Type one letter into a 500-page document and
+your computer sends a verb and a number. A handful of bytes, and the same
+handful whether the document is one page or a thousand. Compare that to last
+writer wins, which sends the whole file every time. This is why Google Docs
+felt instant in 2006, on 2006 internet connections, which is exactly the
+constraint it was built under.
+
+It's also light in memory. OT keeps positions. "Delete position 1" is a number
+and a verb, and the document sitting in memory is just text, the same text the
+editor already had to hold anyway. There's no extra bookkeeping riding along.
+
+### What it costs
+
+The rules multiply. In our example there were two kinds of edit, insert and
+delete, and one adjustment rule: an insert before a delete shifts the delete to
+the right. But every kind of edit needs to know how to adjust against every
+other kind. List the pairs for insert and delete: insert against insert, insert
+against delete, delete against insert, delete against delete. Four rules.
+
+Now add a third kind of edit, like making text bold. Nine rules. Add a fourth,
+like moving a paragraph. Sixteen. The count is the number of edit types
+multiplied by itself, and a real editor has far more than four types.
+
+Each rule is also a chance to be wrong. The count isn't even the worst part.
+Every rule is a small piece of human reasoning, and getting one wrong means two
+people's screens quietly disagree, in the silent way from the first section.
+This is not hypothetical. Published OT algorithms have shipped with mistakes in
+these rules that took years to find, because the bug only appears when
+particular edits cross in a particular order.
+
+And it needs the server. OT is much easier to get right when something
+guarantees the order that edits arrive in, because it cuts down the number of
+combinations you have to handle. Take the referee away and every possible
+arrival order becomes your problem. That's why OT systems in the wild almost
+always have a server in the middle, and inherit everything that comes with it:
+no offline editing worth the name, no peer-to-peer, and one machine whose
+failure stops everyone.
+
+---
+
+## CRDTs: describe letters so they can't be misunderstood
+
+Everything above is a repair job. The instruction is fragile, so we fix it on
+arrival.
+
+The other approach asks a different question. What if the instruction was never
+fragile?
+
+Go back to Bob. He wrote "delete position 1". A position is a fact about one
+screen at one moment, which is why it went stale. What if he could name the
+letter instead?
+
+"Delete the `A`" survives Alice's insert perfectly. The `A` is still the `A` no
+matter what gets typed in front of it.
+
+But naming the letter creates a new problem the moment the document is longer
+than three characters. In `CATAPULT` there are two `A`s. "Delete the `A`" is
+now ambiguous, and the computer has no way to know which one Bob meant.
+
+That problem is old and it isn't a computer problem. Two people named John
+Smith work at your company. "Fire John Smith" is a dangerous sentence.
+Companies solve it with employee numbers.
+
+Do the same here. Every character in the document gets its own **ID**, a label
+that belongs to that one character. Bob sends "delete the character with ID 7",
+and it lands on exactly the right letter no matter what anyone else typed.
+
+For this to hold, the ID needs two properties, and both matter.
+
+It has to be unique. No two characters ever share an ID. That's the John Smith
+fix.
+
+It also has to be permanent and never recycled. An ID is assigned once and
+never changes. When a character is deleted, its ID is retired forever and no
+new character ever inherits it. Skip this and you get a nasty bug: the `A` with
+ID 7 gets deleted, someone types a new letter, the system hands out ID 7 again
+because it's free, and then Bob's original instruction finally arrives after a
+slow trip and deletes an innocent letter that was never involved. With
+permanent IDs, the instruction arrives, finds nothing with ID 7, and correctly
+does nothing at all.
+
+### Keeping the letters in order
+
+There's one thing IDs alone don't solve. A document isn't a bag of letters.
+`CAT` and `ACT` contain identical characters with identical IDs.
+
+So how does a computer know that `C` comes before `A`, if positions are banned?
+
+Think about a ring binder. You want to add a page. You don't say "page 47",
+because if someone else adds a page first, your number points at the wrong
+place. You say what it goes between.
+
+Each character stores the ID of the character it comes after. `C` says "I
+follow the beginning." `A` says "I follow `C`." `T` says "I follow `A`." A
+chain of references, and not a single number to go stale.
+
+Now watch the original problem dissolve. Alice's `S` says "I follow the
+beginning." Bob's instruction names the `A` by its ID. Alice's insert cannot
+move it, because there's no position to shift. Both instructions can arrive in
+either order, on any machine, at any time, after any delay, and they land on
+exactly the letters they meant.
+
+No transformation. No rules to write. No referee. The instructions were never
+fragile in the first place.
+
+That's the whole trade, in one line:
+
+> OT sends fragile instructions and repairs them on arrival. CRDTs send
+> instructions that can't go stale, and pay for it in storage.
+
+The name is conflict-free replicated data type, which is a mouthful that mostly
+gets shortened to CRDT. "Replicated" means everyone has their own copy.
+"Conflict-free" means the copies can be merged in any order and always agree.
+
+### The bit that leaves a mess
+
+There's a catch in the chain. Bob deletes the `A`. If the `A` is genuinely
+removed, then the `T`, which says "I follow `A`", is now pointing at something
+that doesn't exist. The chain breaks.
+
+So deleted characters don't actually leave. The entry stays, keeps its ID,
+keeps its link to its neighbour, and gets a flag saying "don't show me." The
+chain stays intact. The screen shows nothing.
+
+These leftovers are called **tombstones**, and they are the price of the whole
+design.
+
+---
+
+## Where CRDTs work, and where they break
+
+### What they're good at
+
+Offline actually works. Alice on the plane types for two hours. Every keystroke
+lands in her local copy immediately, with proper IDs. When she reconnects, her
+edits merge into exactly the right places, because they were never described in
+terms of anything that could go stale. There's no pile of instructions waiting
+to be told where they belong.
+
+No server is required. Go back to the five people at the table with the dead
+server. Under CRDTs they don't need it to come back. Their laptops can reach
+each other over the local wifi, so they sync directly, right there, with
+nothing in the middle. Under OT this is impossible, because somebody has to be
+the referee. Under CRDTs there is no referee to lose.
+
+Your own devices stay in sync for the same reason. Notes written on a phone in
+a tunnel merge cleanly with notes written on a laptop, without either device
+having to talk to a company's servers.
+
+### What they cost
+
+The memory. A character is one byte. An ID that has to be unique across every
+person and every edit is typically eight to sixteen bytes. So the bookkeeping
+alone can outweigh the actual text by ten times or more. A 100 KB document can
+sit in memory as a megabyte of labels.
+
+And it only grows. Every edit adds an entry. Delete the text and the entry
+stays as a tombstone. So the structure grows by one entry for every character
+ever typed, and never shrinks. That's steady, predictable growth rather than
+anything explosive, but it's relentless. A document someone has edited for
+three years might display 20 KB of text while carrying hundreds of thousands of
+tombstones for every character they ever typed and removed.
+
+There is a fix, called **garbage collection**: once every copy has confirmed it
+saw a deletion, the tombstone can be dropped. It works. It's also the hard
+part, because "every copy has confirmed" means you need to know who all the
+copies are and hear back from all of them, and in a peer-to-peer system
+somebody's laptop has been shut in a drawer for six months.
+
+---
+
+## The trade-off neither one escapes
+
+Here's the thing most articles on this topic leave out.
+
+Alice and Bob are both offline. The document says:
+
+```plain text
+the meeting is on Tuesday
+```
+
+Alice changes it to `the meeting is on Wednesday`. Bob changes it to `the
+meeting is on Thursday`. They reconnect. The CRDT merges cleanly, no conflict,
+no error, no warning.
+
+The document now says something like:
+
+```plain text
+the meeting is on Wednesday Thursday
+```
+
+Depending on how the edits overlap, you might get something worse and less
+readable. Both outcomes are perfectly valid. Every character has a legitimate
+ID and a legitimate place in the chain. The algorithm did its job flawlessly,
+and the sentence is now nonsense that neither person wrote.
+
+> A CRDT guarantees everyone sees the same document. It does not guarantee the
+> document makes sense.
+
+The same is true of OT. This second kind of clash is a human disagreement about
+content, and no merging algorithm has ever solved one. When a tool advertises
+that it "handles conflicts", it means the mechanical kind: characters landing
+in the right slots. The Wednesday-versus-Thursday kind still requires two
+people to talk to each other.
+
+One more caveat worth being honest about. Both approaches promise that everyone
+ends up in the same place eventually. Eventually is doing real work in that
+sentence. For a moment, sometimes a long moment on a bad connection, two people
+are genuinely looking at different documents. If your product does something
+consequential based on what the document says, like charging a card or sending
+an email, "we'll all agree shortly" is not the same as "we agree."
+
+---
+
+## Using this in your own app
+
+First: you probably don't need any of this. If your app has a settings page, or
+a profile, or anything where two people editing the same field at the same
+second is rare and low-stakes, last writer wins is fine. Add a timestamp, take
+the newest, move on. The techniques in this post are for documents that people
+genuinely co-edit, and they carry real complexity.
+
+If you do need it, the choice is usually decided by two questions.
+
+Do you already have a server, and are users basically always online? Lean OT.
+You're already paying for the referee, so you may as well use it, and you avoid
+the memory overhead. This matters most for long documents on cheap phones,
+where the CRDT bookkeeping hurts.
+
+Do you need offline editing, peer-to-peer sync, or device-to-device sync with
+no central server? That's a CRDT. OT can't do it without a referee, and you've
+just said you don't have one.
+
+Second: don't write either from scratch. This is a field where the failure mode
+is a subtle bug that appears once a month, on one user's machine, with no error
+message. Use a library.
+
+| Library | Approach | Reach for it when |
+| --- | --- | --- |
+| [Yjs](https://yjs.dev/) | CRDT | Default choice. Largest ecosystem of editor integrations and network adapters. |
+| [Automerge](https://automerge.org/) | CRDT | Version history is a product feature. Branching, merging and change attribution are built in. |
+| [Loro](https://loro.dev/) | CRDT | Performance matters most. Rust-backed, fastest benchmarks, smallest encoded documents, youngest ecosystem. |
+| [ShareDB](https://share.github.io/sharedb/) | OT | You want the server-in-the-middle model. Realtime backend for JSON documents, runs on Node. |
+
+All of them are open source and in production somewhere. Pick based on whether
+you have a server and whether you need offline, and let the library authors own
+the part that goes wrong quietly.
+
+---
+
+Forty years of work, and it comes down to one decision: repair the instruction
+when it lands, or write an instruction that never needed repairing. OT chose
+the first and bought speed and small memory. CRDTs chose the second and bought
+freedom from the server. Both of them still leave you to sort out whether the
+meeting is on Wednesday or Thursday.

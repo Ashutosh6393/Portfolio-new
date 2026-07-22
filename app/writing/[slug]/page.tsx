@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ComponentType } from "react";
 import { Container } from "@/components/site/container";
 import { BackLink } from "@/components/site/back-link";
+import { ShareButton } from "@/components/ui/share-button";
 import { Toc } from "@/components/ui/toc";
 import { getHeadings, writingSlugs, type PostMeta } from "@/lib/content";
 import { postMeta } from "@/lib/format";
@@ -59,9 +60,13 @@ export default async function WritingPost({
         <h1 className="mb-4 font-serif text-[clamp(30px,5vw,44px)] font-normal leading-[1.12] tracking-[-0.02em] [text-wrap:balance]">
           {metadata.title}
         </h1>
-        <p className="font-mono text-[12px] text-muted">
-          {postMeta(metadata.date, metadata.readingTime)}
-        </p>
+        <div className="flex flex-wrap items-center gap-3 font-mono text-[12px] text-muted">
+          <p>{postMeta(metadata.date, metadata.readingTime)}</p>
+          <span aria-hidden className="text-border">
+            ·
+          </span>
+          <ShareButton title={metadata.title} />
+        </div>
       </header>
       <article className="prose">
         <Post />
