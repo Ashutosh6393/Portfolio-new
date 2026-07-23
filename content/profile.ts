@@ -13,7 +13,7 @@ export const profile = {
   tagline:
     "Full-stack + AI engineer.",
   bio: "I'm a full-stack engineer who ships AI-native products end to end, frontend to backend to deploy. I design the system, build it fast with AI doing most of the typing, and get to something working quickly. Comfortable across the stack: TypeScript, React, Node, Python. I also build retrieval systems and agent tooling. I learn in public and believe in first principles thinking.",
-  resumeUrl: "https://drive.google.com/file/d/14zjVDc3Yduy-TwsZ19hKRa2K0HlBpPPH/view?usp=sharing",
+  resumeUrl: "https://drive.google.com/drive/folders/1JHFOmfOWvgiIrgedExhlJTs44-DUwqiT?usp=drive_link",
   socials: [
     { label: "GitHub", href: "https://github.com/Ashutosh6393" },
     { label: "Twitter", href: "https://x.com/Ashutshv19" },
