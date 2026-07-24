@@ -56,6 +56,7 @@ export default async function ProjectPage({
 
   return (
     <Container className="pb-24 pt-[76px]">
+      <div aria-hidden className="read-progress" />
       <Toc headings={headings} />
       <BackLink href="/projects">Projects</BackLink>
       <header className="mb-12 mt-8">

@@ -54,6 +54,7 @@ export default async function WritingPost({
 
   return (
     <Container className="pb-24 pt-[76px]">
+      <div aria-hidden className="read-progress" />
       <Toc headings={headings} />
       <BackLink href="/writing">Writing</BackLink>
       <header className="mb-12 mt-8">

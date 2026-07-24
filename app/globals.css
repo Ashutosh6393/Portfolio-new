@@ -96,6 +96,30 @@ a {
   animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* ---- Reading progress ------------------------------------------------ */
+/* Hairline under the nav that fills as the page scrolls. Pure CSS scroll-
+   driven animation — no JS, no client component. Where `animation-timeline`
+   is unsupported the bar stays at scale 0, i.e. invisible. */
+@keyframes readProgress {
+  to {
+    scale: 1 1;
+  }
+}
+
+.read-progress {
+  position: fixed;
+  top: 54px; /* nav height */
+  left: 0;
+  z-index: 40;
+  height: 1px;
+  width: 100%;
+  background: var(--muted);
+  transform-origin: left center;
+  scale: 0 1;
+  animation: readProgress linear;
+  animation-timeline: scroll(root block);
+}
+
 /* ---- Long-form reading (MDX bodies) ---------------------------------- */
 .prose {
   max-width: 68ch;
