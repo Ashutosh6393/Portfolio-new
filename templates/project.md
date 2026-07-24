@@ -57,7 +57,7 @@ Constraints:
 - Backtick real identifiers: `rebuild()`, `db.notes`, `/api/sync/pull`.
 - Numbers only if the source says them. Never invent a benchmark.
 
-## 3. `<Flow>` diagrams (optional, project pages only)
+## 3. `<Flow>` diagrams (optional)
 
 A flowchart authored as data. Use it where the source describes a pipeline or a
 sequence of steps; skip it otherwise. Two or three per page is plenty.

@@ -47,7 +47,35 @@ they're the point. Cut hype and filler.
 - Markdown tables — the workhorse for X-vs-Y comparisons. Escape pipes inside
   cells as `\|`.
 - Blockquotes, bold, inline `code`, links (external ones open in a new tab).
-- `<Flow>` exists but is for project pages. Don't use it here.
+- `<Flow>` — a flowchart authored as data. Use it where the source describes a
+  pipeline or a sequence of steps; skip it otherwise. One or two per post is
+  plenty, and always follow one with a paragraph saying what it means — the
+  diagram is a summary, not the explanation.
+
+  ```jsx
+  <Flow
+    title="Two lanes"
+    rows={[
+      {
+        lead: "metadata",                              // optional lane label on the left
+        nodes: [{ label: "Dexie" }, { label: "/api/sync" }],
+        note: "push + pull",                           // optional trailing muted text
+      },
+      {
+        nodes: [
+          { label: "PUT /content", sub: "private" },    // sub = small qualifier under the label
+          { label: "Hocuspocus", op: "or" },            // op: "or" draws a fork instead of an arrow
+          { label: "↺ retry", muted: true },            // muted = borderless annotation
+        ],
+      },
+    ]}
+    caption="What the reader should take from it."
+  />
+  ```
+
+  Only `rows` is required; `title` and `caption` are optional. `nodes[].label`
+  is required, `sub` / `op` / `muted` are not. Nodes join left-to-right with
+  arrows by default.
 - No other components. Don't invent JSX.
 
 ---

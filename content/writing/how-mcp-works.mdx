@@ -1,0 +1,515 @@
+export const metadata = {
+  title: "How MCP actually works",
+  date: "2026-07-25",
+  readingTime: "14 min",
+  summary:
+    "A from-scratch walk through the Model Context Protocol, the standard that lets an AI app use your tools, built up from the problem it solves to the parts that make it tick. No prior knowledge assumed.",
+};
+
+Every AI chatbot has the same blind spot. It knows a huge amount about the
+world in general, but it knows nothing about your world.
+
+It cannot read the file on your laptop, check your database, or look at today's
+GitHub issues. That information lives in tools the model was never connected to.
+
+MCP, the Model Context Protocol, is the standard that connects them. A useful
+first image: it is a USB-C port for AI apps, one shared plug that any tool can
+fit into.
+
+This post explains how it works, starting from the problem it solves and
+building up to the parts that make it tick.
+
+---
+
+## The mess before MCP
+
+Say you are building three AI apps. A chatbot, a coding assistant, and a
+research tool.
+
+You want each of them to reach three outside tools: Google Drive, a database,
+and Slack.
+
+Before MCP, you had to wire up every pair by hand. The chatbot to Drive. The
+chatbot to the database. The chatbot to Slack. Then the same three again for the
+coding assistant. Then again for the research tool.
+
+Three apps times three tools is nine separate integrations.
+
+```plain text
+Before MCP — every app wired to every tool by hand
+
+  Chatbot   ──┬──►  Drive
+              ├──►  Database
+              └──►  Slack
+
+  Coding    ──┬──►  Drive
+  assistant   ├──►  Database
+              └──►  Slack
+
+  Research  ──┬──►  Drive
+  tool        ├──►  Database
+              └──►  Slack
+
+  3 apps × 3 tools = 9 hand-built connections
+```
+
+Nine sounds manageable. The real problem is what happens next.
+
+Two of your apps both talk to Google Drive. Under this setup, you write the
+Drive connection twice, once inside each app. The same code, duplicated.
+
+Then Google changes how Drive works. Now you fix it in both apps. Miss one and
+it breaks.
+
+And it never stops growing. Add a fourth tool and you build three more
+integrations. Add a fourth app and you build four more. The work scales with
+apps multiplied by tools. People call this the M×N problem.
+
+### A way to picture it
+
+Imagine a country with four local languages. You write a cookbook with six
+recipes.
+
+With no shared language, you write every recipe in every language. Six recipes
+times four languages is twenty-four cookbooks. And if one language changes its
+spelling rules, you re-edit every cookbook written in it.
+
+Now everyone agrees to also learn one shared language. You write each recipe
+once, in that shared language. Six cookbooks.
+
+The four local languages did not disappear. They just stopped multiplying your
+work, because the shared language sits in the middle.
+
+MCP is that shared language.
+
+Each AI app learns to speak MCP once. Each tool learns to speak MCP once. Nine
+custom integrations become three apps plus three tools, all wired to one
+standard. The multiplication turns into addition.
+
+```plain text
+With MCP — everyone speaks one shared language
+
+  Chatbot  ──┐              ┌──  Drive
+  Coding   ──┼──►  MCP  ◄──┼──  Database
+  Research ──┘              └──  Slack
+
+  3 apps + 3 tools = 6 connections to one standard
+```
+
+---
+
+## The three roles
+
+MCP splits the world into three parts. Once you can name them, everything else
+falls into place.
+
+- **Host**: the AI app you are actually using. Claude, VS Code, a chatbot.
+- **Server**: a program that offers up a tool or some data. A GitHub server, a
+  Google Drive server.
+- **Client**: the connection between them. The host creates one client for each
+  server it wants to talk to.
+
+That last point is the one people miss, so hold onto it. One client speaks to
+exactly one server.
+
+Picture VS Code with two servers connected at once, a Sentry server and a GitHub
+server. That is one host, two servers, and two clients. VS Code opens a separate
+client for each.
+
+<Flow
+  title="One host opens one client per server"
+  rows={[
+    {
+      lead: "client A",
+      nodes: [{ label: "VS Code", sub: "host" }, { label: "Sentry server" }],
+    },
+    {
+      lead: "client B",
+      nodes: [{ label: "VS Code", sub: "host" }, { label: "GitHub server" }],
+    },
+  ]}
+  caption="One client is one dedicated line to one server. The host appears twice because it opens two of them."
+/>
+
+Think of the host as you, sitting at your desk. Each client is a phone line. To
+talk to two different offices, you do not shout into one phone. You open a
+separate line to each. The server is the office on the far end.
+
+---
+
+## Two layers: what gets said, and how it travels
+
+Every MCP connection is built from two separate parts. Keeping them separate is
+what makes MCP flexible.
+
+Think about a phone call. Two different things are going on at once.
+
+There is the language you speak. And there is the wire that carries your voice,
+the cell signal or the copper line.
+
+Those two are independent. You can have the same English conversation whether it
+runs over 5G or an old landline. The wire does not care what you are saying.
+
+MCP works the same way.
+
+- The **data layer** is the language. It decides what a message means.
+- The **transport layer** is the wire. It carries the raw bytes from one side to
+  the other.
+
+<Flow
+  title="Two layers, stacked"
+  rows={[
+    {
+      lead: "data layer",
+      nodes: [{ label: "JSON-RPC", sub: "the language" }],
+      note: "what a message means — fixed",
+    },
+    {
+      lead: "transport",
+      nodes: [
+        { label: "stdio", sub: "the wire" },
+        { label: "streamable HTTP", sub: "the wire", op: "or" },
+      ],
+      note: "how the bytes travel — swappable",
+    },
+  ]}
+/>
+
+Because they are independent, the same MCP conversation works the same way
+whether it runs on your laptop or across the internet. Swap the wire and the
+language does not change.
+
+That is the whole reason for the split. MCP can add new ways of connecting later
+without rewriting how anything talks.
+
+---
+
+## The shared language: JSON-RPC
+
+The data layer needs an agreed format for messages. MCP uses one called
+JSON-RPC.
+
+Break the name in half.
+
+JSON is a simple text format for data, the `{"key": "value"}` shape. RPC stands
+for Remote Procedure Call. Read it backwards: a Call, to a Procedure (a
+function), that lives Remotely (in another program).
+
+Normally when you call a function, it runs inside your own program and hands
+back an answer. RPC lets you call a function that lives somewhere else, in
+another process or on another machine, and get the answer back as if it had been
+local.
+
+So JSON-RPC is just this: call a remote function, using plain JSON text to
+describe the call and the answer.
+
+### Why plain text won
+
+There are faster formats out there. So why did MCP pick readable JSON text?
+
+Because JSON has one property that beats speed here. Every programming language
+can read it with no setup at all.
+
+A ten-line Python script, a Rust server, and a web browser can all read the same
+JSON message without agreeing on anything in advance except "it's JSON." No
+shared toolchain, no build step.
+
+MCP wants the widest possible door. Anyone, in any language, should be able to
+write a server with zero special tooling. JSON is the format every platform
+already speaks.
+
+### What breaks without it
+
+Picture MCP with no agreed message format. Every server sends back whatever text
+shape it feels like.
+
+Now you are back at the M×N problem. If every server invents its own format,
+every client needs custom code to understand every server. The whole point of
+MCP collapses.
+
+JSON-RPC is the shared language from the cookbook, made concrete. It is the
+exact grammar everyone agrees to write in.
+
+---
+
+## Two ways to plug in
+
+The transport layer, the wire, comes in two forms. One for tools running on your
+own machine, one for tools running somewhere else.
+
+### stdio, for local tools
+
+stdio is short for standard input and output. Every program you run has these
+two streams. When a program prints to your terminal, that is its output. When
+you type into it, that is its input.
+
+Those streams do not have to connect to a terminal. They can connect to another
+program.
+
+When a host uses a local server, it launches that server as a child program.
+Then it wires up the pipes. The host writes messages into the server's input,
+and the server writes replies back through its output. No network, no internet,
+just two programs on the same machine passing text.
+
+Here is the catch that matters. A local server launched this way can only ever
+talk to the one host that launched it.
+
+The server is a private program. Its input and output pipes are held by its
+parent. Nobody else can reach it, because it has no address out in the world.
+There is nothing to connect to from outside.
+
+So local tools are always one host to one server. Think of a private intercom
+wired between two rooms. Only those two rooms can ever use it.
+
+### Streamable HTTP, for remote tools
+
+The other transport is HTTP, the same technology websites run on. Here the
+server lives somewhere with an address, a URL, and waits for anyone to connect.
+
+This flips the picture completely.
+
+The server was not launched by one host holding private pipes. It is a standing
+service sitting at a known address. Any number of clients, on any machine, can
+find it and open their own connection.
+
+Three different people on three different laptops can all use the same remote
+server at once. Reaching it just means sending a request to an address that is
+open to everyone.
+
+Think of a public phone number. Anyone who knows it can call in.
+
+So the two transports split cleanly:
+
+| Transport | Where the server runs | How many can connect |
+| --- | --- | --- |
+| stdio | On your machine, launched by the host | One host only |
+| Streamable HTTP | Somewhere remote, at an address | Many at once |
+
+The difference comes down to one thing. A local program is private and
+unreachable. A remote address is public and open.
+
+---
+
+## The handshake, and why the connection remembers
+
+Before a client and server do any real work, they run a short introduction.
+This introduction is the key to how MCP behaves.
+
+First, a quick idea to have in hand. A connection can be stateful or stateless.
+
+Stateful means the server remembers you. It holds context about your ongoing
+session, so later messages can be short.
+
+Stateless means every request arrives cold. The server keeps nothing between
+requests, so each one has to carry everything the server needs to handle it.
+
+Plain website traffic is stateless by default. Every request stands alone. Being
+logged in to a site is stateful. It remembers who you are.
+
+MCP is stateful.
+
+When a client connects to a server, the first thing they do is a handshake. Each
+side announces who they are and what they can do. These abilities are called
+capabilities.
+
+After the handshake, both sides remember each other's capabilities for the whole
+life of the connection. The client does not have to ask "what can you do" again
+on every message. That was settled up front.
+
+Here is the sequence:
+
+| Step | What happens | Who starts it |
+| --- | --- | --- |
+| Initialize | Client says hello and states the version it speaks | Client |
+| Capability reply | Server answers with what it offers | Server |
+| Tool discovery | Client asks for the actual list of tools | Client |
+| Normal operation | Client uses tools and reads data over the live connection | Client |
+| Change notification | If the server's tools change, it pings the client to refresh | Server |
+
+That last step is worth a beat.
+
+The client discovered the server's tools once, during the handshake, and it
+remembers that list. But being stateful cuts both ways. If the server's tools
+change halfway through, the client's remembered list is now wrong, and it has no
+way to know.
+
+The change notification fixes that. The server pings the client to say the list
+moved, so the client can fetch it again. Memory is useful, but you have to keep
+it honest.
+
+---
+
+## What a server hands over
+
+A server offers three kinds of things. They are called primitives.
+
+- **Tools**: actions the server can perform. Send an email, run a query, open a
+  pull request.
+- **Resources**: data the server can hand over to read. A file, a database
+  record, a log.
+- **Prompts**: pre-written templates a user can pick. A saved "review this code
+  for security issues" instruction.
+
+The distinction people blur is tools versus resources. One does something. The
+other just hands you information.
+
+A tool has a side effect. It changes the world. On a GitHub server, creating a
+pull request is a tool.
+
+A resource does not. It only reads. On the same GitHub server, fetching the
+latest issue is a resource. Nothing changes when you read it.
+
+The cleanest way to keep the three straight is to ask who is in control:
+
+| Primitive | Who decides to use it |
+| --- | --- |
+| Tools | The model, when it decides it needs to act |
+| Resources | The app or user, choosing what to read |
+| Prompts | The user, invoking one on purpose |
+
+---
+
+## What the client hands back
+
+Most people picture MCP as a one-way street. The client asks, the server
+answers.
+
+It goes both ways. The client offers its own three things, which the server can
+request.
+
+The surprising one is sampling. The server can ask the client to run an AI
+completion for it.
+
+Why would a server want that instead of just calling an AI model itself?
+
+Because then the server does not need its own model. If a server called an AI
+service directly, it would need its own account, its own key, its own bill.
+Every server author would have to sign up with a model provider and pay for it.
+
+With sampling, the server borrows the client's model, the client's key, the
+client's bill. The server author ships something useful without ever owning a
+model relationship. And the client stays in control of which model runs and what
+it sees.
+
+The other two are quicker.
+
+Elicitation lets the server ask the user a question mid-task. "Which repo did you
+mean?" "Confirm before I delete this." It is the server pausing to get a human
+answer it does not have.
+
+Logging lets the server send diagnostic messages back to the client, for
+debugging.
+
+Notice the split between the first two. Elicitation goes to the human, for a
+decision only a person can make. Sampling goes to the model, for generation work
+the server does not want to own. A server needs both because it sometimes needs
+a human's judgment and sometimes needs machine output.
+
+---
+
+## Where this falls apart
+
+Every honest explanation needs this section. MCP has real limits, and the
+biggest one comes straight from the feature you just learned.
+
+### Statefulness does not scale
+
+Remembering the session is what keeps every message short and simple on your
+laptop. At large scale, it becomes the main headache.
+
+Say a remote server gets popular. To handle the traffic, you run three copies of
+it behind a load balancer, a piece of software that spreads requests across the
+copies.
+
+A client connects and does its handshake. The load balancer sends that first
+request to copy A. Copy A now remembers the session.
+
+Then the client sends its next request. The load balancer might send it to copy
+B or copy C.
+
+But only copy A saw the handshake. Copy B has no idea who this client is. The
+session state is gone.
+
+<Flow
+  title="One client, two requests, two different copies"
+  rows={[
+    {
+      lead: "handshake",
+      nodes: [
+        { label: "client" },
+        { label: "load balancer" },
+        { label: "copy A", sub: "remembers you" },
+      ],
+    },
+    {
+      lead: "next request",
+      nodes: [
+        { label: "client" },
+        { label: "load balancer" },
+        { label: "copy B", sub: "never saw you" },
+        { label: "copy C", sub: "never saw you", op: "or" },
+      ],
+      note: "session lost",
+    },
+  ]}
+  caption="The session lives inside one copy, but the balancer is free to route the next request to any of them."
+/>
+
+The state sits in the wrong place. It lives inside one copy, while the thing
+choosing copies knows nothing about it.
+
+The usual fix is to pin every request from that client back to copy A. But that
+undoes the point of running three copies. You cannot spread the load freely
+anymore. And if copy A dies, the session dies with it.
+
+This limit is real enough that MCP's maintainers are rewriting the protocol
+around it. The 2026-07-28 revision, landing this month, moves MCP toward a
+stateless core so servers can scale the normal way. The design that makes MCP
+elegant on one machine is the design they had to undo for large deployments.
+
+### Other rough edges
+
+- **Context rot**: connect many servers and the model's limited attention fills
+  up with tool descriptions. Load too many and its accuracy drops. Teams now
+  fetch only the few relevant tools per request instead of loading them all.
+- **No cost controls**: the protocol has no built-in way to track or cap what
+  tool calls cost. That is left to you.
+- **Security surface**: a tool's description can change after you approved it,
+  and an untrusted server can do real damage. The common answer is to put a
+  gateway in front and sandbox anything you do not trust, which tells you the
+  protocol does not guard this on its own.
+
+---
+
+## A few extras
+
+Three questions that come up often, answered quickly.
+
+**Do you have to build both a client and a server?** No. They are independent. If
+you are exposing a tool, you build only a server, and existing hosts bring their
+own clients. If you are building an AI app, you build the client side and connect
+to servers other people wrote. You build only the side you are offering.
+
+**What are MCP apps?** A newer addition. A server can ship an actual user
+interface, not just raw data. Instead of a tool returning plain text, it can
+return a small interface you interact with, and every action still goes through
+the same approval path as a normal tool call.
+
+**What are extensions, the specification, and the registry?**
+
+- The **specification** is the official written standard that defines how all of
+  this must behave. It is versioned by date.
+- **Extensions** are optional add-ons layered on the core, so new features can
+  grow without bloating the base. Long-running tasks, for example, moved out of
+  the core and into an extension.
+- The **registry** is a directory of available servers, so hosts can find and
+  install them instead of everyone configuring by hand.
+
+---
+
+Strip everything else away and MCP is one move. Put a shared language in the
+middle, so every AI app and every tool only has to learn that one language
+instead of learning each other.
+
+The host, the client, the server, the two layers, the handshake, the primitives.
+They are all just the working parts of that single idea.
