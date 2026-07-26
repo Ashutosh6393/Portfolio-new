@@ -1,0 +1,1629 @@
+export const metadata = {
+  title: "Let's build a web analytics tool",
+  date: "2026-07-26",
+  readingTime: "45 min",
+  summary:
+    "The full design for a cookieless web analytics product, written before a line of it exists — every decision with the options I considered, what each one costs, and what I gave up by choosing it.",
+};
+
+I wanted to build a web analytics product. Someone signs up, registers a website
+they own, pastes a small script into it, and gets a dashboard showing how people
+use that site.
+
+This is the design for it, written before any of it exists. It records what I'm
+building, what I decided not to build, and why. Every significant choice is
+written down with the options I considered and what each one costs. If you read
+only one part of this, read the decisions — everything else follows from them.
+
+A note on language first. This is a data pipeline, and pipelines have their own
+vocabulary. Where a technical term is unavoidable I define it in plain words the
+first time it shows up, and again in the glossary at the end.
+
+---
+
+## The product in one paragraph
+
+A person logs in and adds their website. I give them a one-line script tag with
+an ID in it. They paste that into their site's HTML. From then on, every time
+someone visits their site, the script quietly tells my server about it. I store
+those messages, work out who visited, how long they stayed, and which pages they
+looked at, and I show the owner a dashboard with page views, bounce rate,
+average time on site, and how many visitors were new versus returning. All of it
+without cookies, so their visitors never see a cookie banner because of me.
+
+---
+
+## Goals, and what I'm not building
+
+### Goals
+
+1. A site owner can register a site and be collecting data within five minutes.
+2. The numbers on the dashboard are correct, or where they're estimates, they're
+   honestly labelled as estimates.
+3. No cookies, no personal data stored, no consent banner needed.
+4. The system keeps working when one site suddenly gets a lot of traffic.
+5. The design is the same shape as a real, large analytics system, so the parts
+   can be swapped for bigger parts later without redrawing the diagram.
+
+### Non-goals
+
+1. **Analytics for websites the user does not own.** Not possible. The whole
+   next section is about why.
+2. **Competing with Google Analytics on features.** No funnels, no cohorts, no
+   A/B testing, no session replay, no e-commerce revenue tracking.
+3. **Handling millions of events per day.** The design leaves room for it, but
+   version one runs on Postgres and isn't tuned for that volume. *Capacity*
+   covers what breaks and when.
+4. **Custom event tracking in version one.** The mechanism is designed and
+   written down below, but the feature is deferred.
+5. **Being invisible to ad blockers.** Some visitors will be blocked from
+   reporting. I accept an undercount.
+
+### Who this is for
+
+One developer building it alone, part time, who wants real users on it and also
+wants the project to demonstrate how a production data pipeline is put together.
+That's me.
+
+---
+
+## The constraint everything else is built around
+
+This section exists because my original idea for this product was impossible,
+and understanding why shapes the whole system.
+
+The first version of the requirements said: the user pastes **any** website URL
+and I build them a dashboard for it. That can't be done. Here's the reason.
+
+A URL tells you where a website lives. It tells you nothing about the people
+visiting it. Numbers like "how long did someone stay", "did they come back next
+week", "how many pages did they look at" are **behavioural** data. That data
+only exists in the visitor's own browser, at the moment they're browsing. There
+is no public place to look it up, and no request you can make to a website that
+returns it.
+
+So there are only two ways to get behavioural data about a site:
+
+1. **Run code inside the visitor's browser on that site.** This requires the
+   site owner to install your code, which requires them to own the site.
+2. **Buy it.** Companies like SimilarWeb estimate traffic for sites they don't
+   own by licensing data from internet providers, buying clickstream data from
+   browser extensions, and modelling the gaps. It costs millions and the output
+   is a rough estimate of total visits, not a per-page breakdown with accurate
+   time on page.
+
+Option two isn't available to a solo developer, and even if it were, it doesn't
+produce the metrics on my list. So I build option one. The user registers a site
+**they control** and installs my script. Everything here follows from that.
+
+The consequence worth keeping in mind: the product is worthless until a real
+site installs the script. The hardest problem in this project is not technical.
+
+---
+
+## Vocabulary
+
+These words are used precisely throughout.
+
+**Visitor.** One person on one site. Identified with a hash, not a name or a
+cookie.
+
+**Visitor hash.** A short string that stands in for a visitor. Two visits with
+the same hash are treated as the same person. The hash is rebuilt daily, so it
+can't follow a person across days.
+
+**Event.** One message from the script to my server. There are three kinds: a
+*pageview* (someone opened a page), a *ping* (someone is still on the page, sent
+every few seconds), and an *unload* (they're leaving the page).
+
+**Session.** One continuous visit. All the events from one visitor with no gap
+longer than 30 minutes between them. A person who reads three pages and leaves
+has one session containing three pageviews. Sessions aren't sent by the browser
+— I work them out afterwards from the events.
+
+**Pageview.** One page opening. Three pages in a visit is three pageviews, one
+session, one visitor.
+
+**Bounce.** A session with exactly one pageview.
+
+**Raw event.** An event exactly as it arrived, stored unchanged in one big
+append-only table.
+
+**Rollup.** A pre-calculated summary, for example "site X, 12 June, page
+/pricing, 431 views". Small, fast to read, calculated on a schedule from the raw
+events.
+
+**Ingest.** The part of the system that receives events from browsers. The word
+just means "taking data in".
+
+**Buffer.** A holding area between receiving an event and storing it, so that
+receiving stays fast even when storing is slow.
+
+**Worker.** A background process that isn't answering web requests. Mine drain
+the buffer, build sessions, and calculate rollups.
+
+---
+
+## The decisions
+
+Each decision below lists the question, the options, what each option costs,
+what I chose, and what I'm giving up by choosing it. They're in dependency
+order: later decisions assume earlier ones.
+
+### What kind of product is this?
+
+**Question.** Does the user paste a site they own, or any site on the internet?
+
+| Option | What it means | Why it fails or works |
+| --- | --- | --- |
+| Analytics for any URL | User pastes `bbc.co.uk`, gets a dashboard | Impossible. The data doesn't exist to fetch. |
+| Analytics for your own site | User registers a site they control, installs a script | Standard, well understood, buildable alone |
+
+**Chosen:** analytics for your own site.
+
+**Given up:** the "paste any URL" experience, which was the original idea and is
+the more impressive demo. There is no version of it that works.
+
+---
+
+### How do I recognise a visitor?
+
+**Question.** When two pageviews arrive, how do I know whether they came from
+the same person?
+
+**Option A: a cookie.** Put a random ID in the visitor's browser storage the
+first time they arrive, and read it back on later visits. This is what Google
+Analytics does.
+
+- Works well. The same person keeps the same ID for months, so "new versus
+  returning" and long-term retention are exact.
+- Legally expensive. Storing an identifier on someone's device for analytics
+  needs consent under GDPR, and India's Digital Personal Data Protection Act
+  applies to me directly. That means a consent banner, a consent management
+  system, and storing proof of consent.
+- The banner also reduces the data. Visitors who decline are invisible, so the
+  numbers get worse in exchange for all that work.
+
+**Option B: no cookie, a daily hash.** Store nothing on the visitor's device.
+Instead build an ID on the server from things I already receive:
+
+```plain text
+visitor_hash = hash(daily_salt + ip_address + user_agent + site_id)
+```
+
+The `daily_salt` is a random secret generated once every 24 hours and never
+written to disk. When it rotates, yesterday's hashes can no longer be recreated
+or matched to today's, so the data stops being linkable to a person over time.
+The IP address is used to compute the hash and then discarded, never stored.
+
+- No identifier is stored on the device, and the result isn't personal data in
+  any lasting way, so no consent banner is required. This is the legal basis
+  Plausible and Fathom operate on.
+- Same person, same day, same device gives the same hash. So sessions and
+  same-day returning visits are accurate.
+- Different day gives a different hash. So I **cannot** follow a person across
+  days.
+- Two people behind the same office network on the same phone model can collide
+  into one hash. Rare, and it slightly undercounts visitors.
+
+**Chosen:** option B, the daily hash.
+
+**Given up:** exact multi-day identity. "Returning visitor" is accurate within a
+day and is an estimate beyond that. This has a consequence for the retention
+metric that I haven't fully resolved, and it's written up in *Open questions*
+rather than buried here.
+
+---
+
+### How big is this supposed to get?
+
+**Question.** Do I design for a few thousand events a day or a few hundred
+million?
+
+Analytics is a write-heavy workload with heavy aggregate reads. Every pageview
+is a write. Every dashboard load is a "add up thousands of rows and group them"
+read. Regular databases like Postgres are built for a different shape of work:
+many small reads and updates of individual rows. Column-oriented databases like
+ClickHouse are built for exactly this shape and are perhaps a hundred times
+faster at it.
+
+| Option | Stack | Cost |
+| --- | --- | --- |
+| Build for small | Postgres | Simple, cheap, one thing to run. Falls over somewhere around a few million rows per day. |
+| Build for large | ClickHouse, Kafka, separate ingest tier | Correct at scale. Months of infrastructure work, real hosting bills, and a lot of operational knowledge needed before the first useful screen exists. |
+
+**Chosen:** build for small on Postgres, but lay the pipeline out in the same
+shape a large system uses, so each part can be replaced individually. *How this
+grows up* lists exactly which part gets replaced by what, and at roughly what
+volume.
+
+**Given up:** the system will need real work to handle serious traffic. I'm
+choosing to do that work later, with a live system to learn from, instead of
+guessing now.
+
+---
+
+### How does an event get from the browser into the database?
+
+**Question.** When an event arrives, do I write it to the database immediately,
+or hold it somewhere first?
+
+**Option A: write it straight in.** Receive the event, run an INSERT, return a
+response.
+
+- Simplest possible thing. No extra services.
+- The speed of receiving events is now tied to the health of the database. A
+  slow query somewhere else in the system makes event collection slow, and slow
+  collection means the browser request hangs and events get dropped.
+- One row at a time is the worst way to write to any analytics store. Databases
+  want batches.
+- If the database is briefly unavailable, the event is gone. There's no second
+  chance, because the visitor has already moved on.
+
+**Option B: buffer, then write in batches.** Receive the event, push it onto a
+fast in-memory list, return a response immediately. A separate worker takes
+events off that list in groups of a hundred and writes them in one go.
+
+- Receiving is now fast and stays fast, because pushing onto an in-memory list
+  takes well under a millisecond and never touches the database.
+- Traffic spikes get absorbed by the buffer instead of hitting the database as a
+  wall of individual writes.
+- If the database has a problem, the buffer grows and the worker retries.
+  Nothing is lost as long as the buffer holds.
+- Costs one more service to run, and an in-memory buffer can lose a few seconds
+  of events if it restarts.
+
+**Chosen:** option B, with Redis as the buffer.
+
+This is the single most important structural decision here. Every serious
+analytics pipeline has the same three parts: something that accepts events
+quickly, something that holds them, and something that writes them in batches.
+Only the components change with scale.
+
+<Flow
+  title="Accept, hold, batch-store"
+  rows={[
+    {
+      lead: "mine",
+      nodes: [
+        { label: "web route", sub: "accept" },
+        { label: "Redis list", sub: "hold" },
+        { label: "Node worker", sub: "batch-store" },
+      ],
+    },
+    {
+      lead: "at scale",
+      nodes: [
+        { label: "edge service", sub: "accept" },
+        { label: "Kafka", sub: "hold" },
+        { label: "ClickHouse consumer", sub: "batch-store" },
+      ],
+    },
+  ]}
+  caption="Same three boxes either way. Scaling this system means swapping what's inside them, not redrawing it."
+/>
+
+**Given up:** durability of the buffer itself. Redis holds events in memory. If
+the Redis process dies, whatever hadn't yet been written is lost. Kafka solves
+this by writing to disk and tracking how far each consumer has read. I'm
+accepting a small window of possible loss.
+
+---
+
+### Does the dashboard read raw events or pre-calculated summaries?
+
+**Question.** When the owner opens their dashboard and asks for the last 30
+days, what do I query?
+
+**Option A: query the raw events table each time.** Always accurate to the
+second, and there are no extra tables to maintain. But a site with 50,000
+pageviews a day has around 1.5 million raw rows in a 30-day window, and with
+pings included, several times that. Adding those up on every dashboard load,
+repeating the same work every refresh, gets slow quickly and gets slower forever
+as the table grows.
+
+**Option B: calculate summaries on a schedule.** A job runs periodically and
+writes rows like "site X, 12 June, /pricing, 431 views, 88 bounces, 51,200 total
+seconds". The dashboard reads those. Instead of scanning a million rows it reads
+a few hundred, and it stays fast no matter how big the raw table gets.
+
+**Chosen:** option B, and I keep the raw events as well.
+
+Keeping both matters. The summaries serve the dashboard. The raw events let me
+calculate a new metric later that I didn't think of today, and let me rebuild a
+summary if I find a bug in how it was calculated. Delete the raw data and both
+of those become impossible forever.
+
+**Given up:** freshness. A summary is only as current as the last time the job
+ran, which is its own decision further down. There's also a modelling catch:
+bounce rate and time on site can't be calculated by adding up individual events,
+because they're properties of a whole visit. That forces the next decision.
+
+---
+
+### What is a session, and how do I measure time on a page?
+
+This is the conceptual centre of the system. Three of my metrics depend on
+getting it right.
+
+**The problem.** The browser sends me one message per page opening. But bounce
+rate needs to know how many pages were in a visit, and average time on site
+needs to know how long the visit lasted. Neither is a property of a single
+message. Both are properties of a *visit*, which is something I have to
+reconstruct.
+
+**Sub-decision A: where does one visit end and the next begin?**
+
+There's no signal for "the visitor has left". Browsers don't reliably tell you.
+So every analytics system in existence uses a timeout: if a visitor does nothing
+for N minutes, the visit is considered over, and their next action starts a new
+visit. The industry standard N is 30 minutes, inherited from Google Analytics,
+and there's no deeper reason for it than convention. Using the same number as
+everyone else makes my numbers comparable to theirs.
+
+**Chosen:** a gap of more than 30 minutes between two events from the same
+visitor ends the session.
+
+Because the visitor hash changes at midnight, a session also can't cross
+midnight. A visit starting at 23:50 gets recorded as two sessions. Partial fix
+in *Open questions*.
+
+**Sub-decision B: how do I measure how long someone was on a page?**
+
+**Option A: subtract timestamps.** If page A was opened at 10:00:00 and page B
+at 10:00:40, they spent 40 seconds on A. Simple, needs no extra events.
+
+The flaw is severe. The **last page of every visit has no following pageview to
+subtract from**, so its duration is unknown, and I record zero. Which means:
+
+- Every bounce, by definition a one-page visit, records a duration of **zero
+  seconds**, even if the person read for ten minutes.
+- Every visit's final page contributes nothing to time on site.
+
+Both of my headline time metrics would be systematically wrong and biased
+downward. This is the well known reason older Google Analytics time-on-site
+figures were unreliable.
+
+**Option B: heartbeat pings.** While the page is open, the script sends a small
+"still here" message every 15 seconds, and one final message when the tab is
+hidden or closed. Now the last page has data, and a one-page visit has a real
+duration.
+
+- Correct durations for every page including the last one, and real bounce
+  durations.
+- Roughly multiplies event volume by eight to ten, because a three-minute visit
+  sends around twelve pings instead of one pageview. At my scale this is
+  nothing, and the buffered ingest above exists precisely so extra volume is
+  cheap.
+- The script gets more complicated. It has to stop pinging when the tab is in
+  the background, or I record people as "reading" a tab they forgot about a day
+  ago.
+
+**Chosen:** option B, pings every 15 seconds while the tab is visible, plus a
+final message on tab hide sent with `navigator.sendBeacon` (a browser feature
+designed for exactly this, which delivers a small message even as the page is
+closing).
+
+**Given up:** a heavier script and more events. Worth it, because option A means
+knowingly shipping two broken numbers.
+
+---
+
+### Which site does an event belong to, and how do I stop people faking data?
+
+**Question.** The script is the same file for everyone. How does an event get
+attributed to the right dashboard, and what stops someone sending fake events
+into a competitor's dashboard?
+
+**How attribution works.** When a user registers a site, I generate a short
+public ID, for example `a1b2c3d4`. They install:
+
+```html
+<script defer src="https://ourapp.com/s.js" data-site="a1b2c3d4"></script>
+```
+
+The script reads that attribute and includes it in every event.
+
+**The problem.** That ID is visible in the page source to anyone who looks. It
+has to be, because it lives in the browser. There is no way to put a secret in
+client-side JavaScript, because anyone can read the JavaScript. So anyone can
+copy someone's site ID and send my server a million fake pageviews, ruining
+their dashboard.
+
+Options I considered:
+
+| Option | Effect |
+| --- | --- |
+| Secret key in the script | Doesn't work. Nothing in the browser is secret. |
+| Check the `Origin` header | The browser attaches the page's domain to the request. I compare it to the domain the owner registered and reject mismatches. Stops casual abuse. Can be faked by someone sending requests directly rather than through a browser. |
+| Rate limit per site and per IP | Caps the damage anyone can do, whether or not they fake the origin. |
+| Signed requests from a server | Only possible if the customer runs server-side code, which breaks the "paste one line" promise. |
+
+**Chosen:** public site ID, one shared script file, origin checking against the
+registered domain, plus rate limiting.
+
+**Given up:** protection against a determined, targeted attacker. Someone who
+wants to poison one specific dashboard and knows how HTTP works can do it. This
+is equally true of Google Analytics and Plausible. Nobody has solved
+browser-side attribution, and it isn't worth solving here.
+
+**Related trap:** ad blockers block requests based on the file name and path. A
+script called `analytics.js` posting to `/track` will be blocked for a
+noticeable share of visitors. So I name things neutrally. The real fix, which
+large tools offer, is letting the customer serve the script from their own
+domain. Deferred.
+
+---
+
+### Custom events: actions and share count
+
+The original requirements asked for "actions" and "share count". Both need
+explaining because they're different in kind from every other metric.
+
+**Everything else on the list is automatic.** Page views, bounce rate, time on
+site, new versus returning: the script can work all of these out on its own,
+because it knows a page was opened and it knows how long the tab stayed visible.
+
+**"Actions" is not automatic.** The script has no idea what counts as an action
+on someone's site. A signup, a video play, an add to cart, a filter applied.
+These are specific to each business and invisible to a generic script. The only
+way to capture them is to give the site owner a function to call at the moment
+the thing happens:
+
+```js
+ourapp.track('signup')
+ourapp.track('add_to_cart', { plan: 'pro' })
+```
+
+So "actions" isn't a number that appears. It's a **feature I build** (a tracking
+function plus an event name column plus a dashboard panel), and each customer
+only sees data for actions they've gone and instrumented themselves. This is how
+Google Analytics events, Plausible goals, and PostHog captures all work.
+
+**"Share count" cannot be measured at all.** There's no signal on the web that
+says "someone shared this link". When a visitor copies a URL and pastes it into
+WhatsApp, nothing reaches me. The browser's Web Share API doesn't report whether
+the user completed or cancelled the share. The only measurable thing is a
+**click on a share button that the site owner wired up as a custom event**,
+which counts intent to share, not shares. On a site with no share button the
+number is permanently zero and unknowable.
+
+**Chosen:** cut both from version one. Keep the design, because it costs nothing
+to add later: custom events flow through the same ingest, buffer, worker,
+session and rollup path as everything else, with an extra `event_name` column.
+Adding it back is a day of work, mostly UI.
+
+**For when it comes back:** ship one generic `track()` function, present
+"actions" as a table of event names and counts, and don't have a "share count"
+tile at all. A tile implies I can measure shares. Let share be one custom event
+among others, and give the panel an empty state explaining how to add tracking,
+so a customer who has instrumented nothing sees instructions rather than a
+broken-looking zero.
+
+---
+
+### Bots
+
+A large share of raw web traffic isn't people. Search crawlers, uptime monitors,
+security scanners, scrapers, and link preview fetchers (every time someone
+pastes a URL into Slack or WhatsApp, something fetches that page) all look like
+visits. Counted naively, they inflate pageviews, invent visitors, and wreck
+bounce rate.
+
+**The first line of defence is free.** Because I count with JavaScript in the
+browser rather than by reading server logs, anything that doesn't run JavaScript
+never reaches me at all. Most simple crawlers and every link-preview fetcher
+fall into that category. This is a real advantage of the script approach, and
+it's the reason script-based tools report lower numbers than server log
+analysis.
+
+What still gets through: headless browsers, which are real browser engines
+driven by a program and do run JavaScript.
+
+| Option | Catches | Cost |
+| --- | --- | --- |
+| Nothing | Baseline. Headless bots counted as people. | Free |
+| User agent list | Bots that identify themselves, using the public `crawler-user-agents` list of a few hundred patterns | An hour of work, a list to update occasionally |
+| Simple browser checks | Automated browsers that expose `navigator.webdriver`, or report impossible screen sizes | An hour |
+| Behavioural detection | Almost everything | An entire industry. Mouse movement analysis, request rate patterns, network fingerprinting, machine learning models. Not happening. |
+
+**Chosen:** user agent list plus simple browser checks. Accept that some
+sophisticated bots get counted.
+
+**Sub-decision: drop bot events, or store and flag them?**
+
+**Chosen: flag them.** Store the event with `is_bot = true` and exclude flagged
+rows when building rollups. If I dropped them and later found my bot list had a
+false positive that was silently deleting a real customer's mobile traffic, that
+data would be gone forever. Flagged data can be reclassified and the rollups
+rebuilt. Same principle as keeping raw events alongside summaries: never destroy
+the original, filter at the point of use.
+
+---
+
+### One application or separate services?
+
+**Question.** Does the part that receives events live in the same application as
+the dashboard?
+
+The two jobs have opposite characteristics:
+
+|  | Ingest | Dashboard |
+| --- | --- | --- |
+| Request volume | Very high. Every pageview and every ping from every visitor of every site. | Very low. Only owners, occasionally. |
+| Work per request | Almost none. Validate, push to Redis, reply. | Complex. Auth, several queries, chart data. |
+| What it needs | To be fast and never fall over | Rich features |
+
+**The risk of combining them.** If both run in one deployment, they share a pool
+of compute. A traffic spike on ingest, or a bot flood, or one customer's site
+going viral, consumes that pool, and logging in starts failing. The cheap
+high-volume path takes down the valuable low-volume path. Isolating these from
+each other is one of the main reasons real systems are split into services at
+all.
+
+| Option | Benefit | Cost |
+| --- | --- | --- |
+| One application | One thing to build, deploy, and debug. Fastest route to a working product. | Shared failure. A spike in traffic degrades the dashboard. |
+| Separate ingest service | A spike can't affect the dashboard. Ingest can be scaled on its own. Matches how real systems are built. | Three processes to run and deploy instead of one, more moving parts while learning. |
+
+**Chosen:** one application for now, with a rule attached.
+
+**The rule:** the ingest route must stay thin and must not import anything from
+the rest of the app. No ORM, no auth code, no shared services. It validates,
+checks for bots, pushes to Redis, and returns. Its only dependencies are the
+Redis client and a hashing function.
+
+The reason for the rule is that it keeps the split cheap. If ingest quietly
+grows imports into the dashboard's code, extracting it later becomes a rewrite.
+Kept clean, it stays a move: copy the file into its own service, point the
+script at a new URL, deploy.
+
+**Given up:** the isolation itself, for now. This is the decision most likely to
+be revisited first, and it's step one of the scaling path.
+
+---
+
+### Authentication
+
+**Question.** Build login myself or use a library?
+
+Login means password hashing, session tokens, password reset emails, token
+expiry, protection against timing attacks and session fixation, and a legal duty
+to keep credentials safe. None of it has anything to do with analytics. It's the
+same in every product, and it's one of the easiest places to introduce a
+security hole by accident.
+
+| Option | Benefit | Cost |
+| --- | --- | --- |
+| Build it | Learn how auth works internally. No dependency. | Days of work on a solved problem, in the area with the worst consequences for getting it wrong. |
+| Hosted service (Clerk, Auth0) | Fastest. Someone else's problem. | Users live in someone else's system, split from my own data model. Monthly cost. |
+| Library with my own database (Better Auth, Auth.js) | Days of work become an afternoon. Users and sessions live in my Postgres next to everything else. | A dependency to keep updated. |
+
+**Chosen:** Better Auth, with users and sessions stored in my own Postgres.
+
+The reasoning is about where the learning budget goes. Building auth
+demonstrates nothing to an interviewer that a working data pipeline doesn't
+demonstrate better, and it adds risk. Keeping the user tables in my own
+database, rather than a hosted service, means the data model stays whole and I
+can join a site to its owner in one query.
+
+**Attached requirement: tenant isolation.** Every dashboard query must be
+filtered by the logged-in user's ownership of the site. One query that forgets
+this shows customer A customer B's traffic. There's a whole section on it below,
+and it isn't optional.
+
+---
+
+### How fresh is the dashboard?
+
+Choosing pre-calculated summaries created a problem: summaries are only current
+as of the last time the job ran. If the job runs hourly and someone opens their
+dashboard, today looks empty or stale, and the product feels broken even though
+it's working as designed.
+
+| Option | Behaviour | Cost |
+| --- | --- | --- |
+| Summaries only | Today's data lags by up to one job interval | Free. Label it honestly as "updates hourly". Feels dead. |
+| Summaries for past days, live query for today | History is instant, today is accurate to the second | The two have to be combined without double counting. Fiddly. |
+| Push live updates to the browser | A counter that ticks upward as events arrive | Websockets, connection management, real complexity, and not much real value |
+
+**Chosen:** the middle option, plus one cheap live number.
+
+- Anything before today comes from the summary tables. Fast, and it never
+  changes.
+- Today comes from a live query against the raw events table. That's only one
+  day of data, so it's small enough to aggregate on demand.
+- The two are added together in the query layer before being returned.
+- Separately, a "visitors right now" number comes straight from Redis. Every
+  event already goes through Redis, so I keep a set of visitor hashes seen in
+  the last five minutes with a short expiry. Reading its size is a single fast
+  operation.
+
+Splitting data into a slow-but-complete batch layer and a fast-but-recent live
+layer, then combining them at read time, is a standard architecture with a name
+(Lambda architecture). Mine is small but it's the same idea.
+
+**Given up:** simplicity at the seam. Combining "history from summaries" with
+"today from raw" is exactly where an off-by-one error double counts or loses a
+chunk of today, especially around the boundary and across time zones. Budget
+debugging time. The live "visitors right now" number, by contrast, is nearly
+free and does most of the work of making the product feel alive.
+
+---
+
+### How long do I keep raw events?
+
+The heartbeat pings mean event volume is roughly eight to ten times pageview
+volume. A site with 10,000 pageviews a day produces something like 80,000 to
+100,000 rows a day. Across several sites over several months, the raw table
+reaches tens of millions of rows. It's also the table that both the live "today"
+query and the session builder read from.
+
+**The insight that makes this manageable:** raw events are only valuable for a
+short window. They're needed to calculate today's numbers, to build sessions,
+and to rebuild a summary if I find a bug. After a couple of months, the
+summaries are the permanent record and the raw rows are dead weight, occupying
+space and slowing down maintenance.
+
+So: keep summaries forever, because one row per page per day is tiny. Keep raw
+events for roughly 60 days, then remove them.
+
+**Sub-decision: how do I remove them?**
+
+The obvious answer is a nightly `DELETE FROM raw_events WHERE ts < now() -
+interval '60 days'`. This is a trap. In Postgres a deleted row isn't immediately
+removed from disk, it's marked dead and cleaned up later by a background process
+called autovacuum. Deleting millions of rows at once creates millions of dead
+rows, bloats the table, and gives autovacuum a large amount of work that
+competes with live traffic. The table can end up bigger and slower after the
+delete than before.
+
+The right tool is **partitioning**: physically splitting one logical table into
+many smaller tables, one per day, with Postgres routing rows to the correct one
+automatically. Removing old data becomes dropping an entire day's table, which
+is instant, because it's a change to the catalog rather than row-by-row work.
+There are no dead rows and no cleanup.
+
+**Chosen:** partition `raw_events` by day, keep 60 days, drop old partitions on
+a schedule.
+
+Two side benefits: queries with a date filter only read the partitions they
+need, so both the "today" query and the session builder get faster. And each
+partition's indexes stay small.
+
+**Given up:** one more moving part with a known failure mode. Tomorrow's
+partition must exist before tomorrow's first event arrives, or inserts fail
+outright. So the job creates partitions several days ahead and is monitored.
+
+---
+
+## Architecture
+
+### The shape of it
+
+```plain text
+  VISITOR'S BROWSER (on the customer's website)
+  ┌────────────────────────────────────────────┐
+  │  s.js                                      │
+  │   - on page load      -> pageview event    │
+  │   - every 15 seconds  -> ping event        │
+  │   - on tab hide/close -> unload event      │
+  │   - on SPA navigation -> pageview event    │
+  └───────────────────┬────────────────────────┘
+                      │  HTTP POST, small JSON body
+                      ▼
+  ┌────────────────────────────────────────────┐
+  │  INGEST ROUTE            (thin, no imports)│
+  │   1. size and shape check                  │
+  │   2. Origin matches registered domain?     │
+  │   3. rate limit check                      │
+  │   4. bot check -> is_bot flag              │
+  │   5. build visitor_hash (IP used, discarded)│
+  │   6. push to Redis                         │
+  │   7. return 204, no body                   │
+  └───────────────────┬────────────────────────┘
+                      ▼
+  ┌────────────────────────────────────────────┐
+  │  REDIS                                     │
+  │   events:queue      list, the buffer       │
+  │   events:processing list, in-flight batch  │
+  │   online:{site_id}  set, 5 min expiry      │
+  └───────────────────┬────────────────────────┘
+                      │  worker pops batches of ~100
+                      ▼
+  ┌────────────────────────────────────────────┐
+  │  INGEST WORKER                             │
+  │   bulk INSERT into raw_events              │
+  └───────────────────┬────────────────────────┘
+                      ▼
+  ┌────────────────────────────────────────────┐
+  │  raw_events   (partitioned by day, 60 days)│
+  └──────┬──────────────────────────┬──────────┘
+         │                          │
+         │ every 10 min             │ live query, today only
+         ▼                          │
+  ┌──────────────────────┐          │
+  │  SESSION BUILDER     │          │
+  │  group by visitor,   │          │
+  │  split on 30 min gap │          │
+  └──────────┬───────────┘          │
+             ▼                      │
+  ┌──────────────────────┐          │
+  │  sessions            │          │
+  └──────────┬───────────┘          │
+             │ hourly               │
+             ▼                      │
+  ┌──────────────────────┐          │
+  │  ROLLUP JOB          │          │
+  └──────────┬───────────┘          │
+             ▼                      │
+  ┌──────────────────────┐          │
+  │  daily_* summaries   │          │
+  │  (kept forever)      │          │
+  └──────────┬───────────┘          │
+             │                      │
+             ▼                      ▼
+  ┌────────────────────────────────────────────┐
+  │  DASHBOARD API                             │
+  │   history from summaries                   │
+  │ + today from raw                           │
+  │ + "right now" from Redis                   │
+  │   every query scoped to the owner          │
+  └───────────────────┬────────────────────────┘
+                      ▼
+              OWNER'S DASHBOARD
+```
+
+### The processes I actually run
+
+Four things run. In version one, the first is a Next.js app and the other three
+are one Node process with three scheduled jobs, which keeps deployment simple.
+
+| Process | Job | Runs |
+| --- | --- | --- |
+| Web app | Dashboard, login, site management, ingest route, serving `s.js` | Always |
+| Ingest worker | Drain Redis, bulk insert into `raw_events` | Continuous loop |
+| Aggregator | Build sessions, then build rollups | Every 10 minutes / hourly |
+| Maintenance | Create future partitions, drop expired ones, rotate the daily salt | Daily |
+
+### Why the ingest route is special
+
+It's inside the web app but it's treated as a separate thing. It doesn't import
+the ORM, the auth library, or any shared service code. It reads from Redis and
+an in-memory cache of valid site IDs, and it never touches Postgres on the
+request path. This is what keeps it fast and what makes extracting it later a
+copy-paste rather than a rewrite.
+
+---
+
+## Data model
+
+Postgres. Times stored as `timestamptz`, always UTC, converted to the site's
+timezone only when a rollup is calculated or a chart is drawn.
+
+### Accounts and sites
+
+Better Auth manages `user`, `session`, `account`, and `verification`. I don't
+modify them.
+
+```sql
+create table sites (
+  id          uuid primary key default gen_random_uuid(),
+  site_id     text        not null unique,   -- public, appears in the snippet
+  user_id     text        not null references "user"(id) on delete cascade,
+  domain      text        not null,          -- 'example.com', used for origin checks
+  name        text        not null,
+  timezone    text        not null default 'UTC',  -- day boundaries for this site
+  created_at  timestamptz not null default now()
+);
+
+create index sites_user_id_idx on sites (user_id);
+```
+
+Notes on the choices here:
+
+- `site_id` is public and short. It isn't a secret and isn't treated as one.
+- `domain` is what the origin check compares against. Stored without protocol or
+  `www`, and compared after normalising both sides.
+- `timezone` matters more than it looks. "Page views on 12 June" means different
+  rows depending on whose midnight you mean. Every rollup is calculated in the
+  site's own timezone. Getting this wrong produces charts where traffic appears
+  to shift by several hours.
+- Deleting a user cascades to their sites, which cascades to their data.
+  Required for data deletion requests.
+
+### Raw events
+
+The high-volume table. Append only, never updated, partitioned by day.
+
+```sql
+create table raw_events (
+  event_id      uuid        not null,        -- generated in the browser, used for dedupe
+  site_id       text        not null,
+  visitor_hash  text        not null,
+  session_id    uuid,                        -- null on insert, filled by the session builder
+  type          text        not null,        -- 'pageview' | 'ping' | 'unload'
+  path          text        not null,        -- '/pricing', query string stripped
+  referrer_host text,                        -- 'google.com', full URL not stored
+  utm_source    text,
+  utm_medium    text,
+  utm_campaign  text,
+  country       text,                        -- two letters, from IP, IP itself discarded
+  browser       text,
+  os            text,
+  device        text,                        -- 'desktop' | 'mobile' | 'tablet'
+  screen_w      int,
+  is_bot        boolean     not null default false,
+  client_ts     timestamptz not null,        -- browser clock, untrusted
+  ts            timestamptz not null,        -- server receive time, authoritative
+  primary key (event_id, ts)
+) partition by range (ts);
+
+create index raw_events_site_ts_idx      on raw_events (site_id, ts);
+create index raw_events_sessionize_idx   on raw_events (site_id, visitor_hash, ts);
+```
+
+Design notes, each of which is a decision:
+
+- **`event_id` generated in the browser.** If the worker crashes after writing a
+  batch but before removing it from Redis, the batch gets written twice. A
+  unique event ID plus `on conflict do nothing` makes a repeated write harmless.
+  Without it, retries corrupt counts.
+- **Partition key must be in the primary key.** Postgres requires it, which is
+  why the key is `(event_id, ts)` rather than just `event_id`.
+- **Two timestamps.** `client_ts` is whatever the visitor's computer thinks the
+  time is, and computer clocks are wrong surprisingly often, sometimes by years.
+  Everything that matters uses `ts`, the moment my server received the event.
+  `client_ts` is kept only to measure event delay and to sanity check.
+- **No IP address column, deliberately.** The IP is used to build the visitor
+  hash and to look up a country, then thrown away. It's never written anywhere.
+  This is the difference between "we don't store personal data" being true and
+  being marketing.
+- **No full URL and no full referrer.** Query strings can contain email
+  addresses, tokens, and session IDs. I keep the path and the referrer's
+  hostname, and drop the rest, keeping the named UTM parameters I actually use.
+- **`session_id` is nullable and filled in later.** The browser can't know its
+  session ID, because sessions are worked out on the server afterwards.
+- **The second index is for the session builder specifically.** It needs every
+  event for one visitor on one site in time order, which is exactly this index.
+
+Partitions look like this, created ahead of time by the maintenance job:
+
+```sql
+create table raw_events_2026_07_26 partition of raw_events
+  for values from ('2026-07-26 00:00:00+00') to ('2026-07-27 00:00:00+00');
+```
+
+### Sessions
+
+Derived from raw events. One row per visit. This is the table the rollups
+actually read, because bounce rate and time on site only make sense at this
+level.
+
+```sql
+create table sessions (
+  session_id      uuid        primary key,
+  site_id         text        not null,
+  visitor_hash    text        not null,
+  day             date        not null,      -- in the site's timezone
+  started_at      timestamptz not null,
+  ended_at        timestamptz not null,
+  duration_sec    int         not null,
+  pageview_count  int         not null,
+  is_bounce       boolean     not null,
+  entry_path      text        not null,
+  exit_path       text        not null,
+  referrer_host   text,
+  utm_source      text,
+  country         text,
+  browser         text,
+  os              text,
+  device          text,
+  is_returning    boolean     not null default false,  -- seen earlier the same day
+  is_bot          boolean     not null default false,
+  is_open         boolean     not null default true    -- may still receive more events
+);
+
+create index sessions_site_day_idx     on sessions (site_id, day);
+create unique index sessions_visitor_start_idx
+  on sessions (site_id, visitor_hash, started_at);
+```
+
+Notes:
+
+- **`is_open` exists because the session builder runs every ten minutes on a
+  moving window.** A visit that's still happening will be seen again by the next
+  run and must be extended, not duplicated. A session is closed once 30 minutes
+  have passed with no new events.
+- **`is_bounce` is stored rather than calculated on read**, because
+  "pageview_count = 1" is cheap now and expensive to recompute across millions
+  of rows later.
+- **`is_returning` means "this visitor hash was seen earlier today"**, which is
+  all the daily hash can honestly support.
+- Sessions inherit `is_bot` from their events so bots can be excluded from every
+  summary at once.
+
+### Rollups
+
+Small, read constantly, kept forever. One table per grouping, because mixing
+groupings into one table means either sparse columns or double counting.
+
+```sql
+-- one row per site per day
+create table daily_site_stats (
+  site_id            text    not null,
+  day                date    not null,
+  pageviews          int     not null default 0,
+  sessions           int     not null default 0,
+  visitors           int     not null default 0,   -- distinct visitor hashes
+  bounces            int     not null default 0,
+  total_duration_sec bigint  not null default 0,
+  new_visitors       int     not null default 0,
+  returning_visitors int     not null default 0,
+  primary key (site_id, day)
+);
+
+-- one row per site per day per page
+create table daily_page_stats (
+  site_id            text    not null,
+  day                date    not null,
+  path               text    not null,
+  pageviews          int     not null default 0,
+  visitors           int     not null default 0,
+  entries            int     not null default 0,
+  exits              int     not null default 0,
+  bounces            int     not null default 0,
+  total_duration_sec bigint  not null default 0,
+  primary key (site_id, day, path)
+);
+
+-- one row per site per day per referrer
+create table daily_referrer_stats (
+  site_id       text not null,
+  day           date not null,
+  referrer_host text not null,   -- 'direct' when there is none
+  sessions      int  not null default 0,
+  visitors      int  not null default 0,
+  bounces       int  not null default 0,
+  primary key (site_id, day, referrer_host)
+);
+
+-- one row per site per day per device/browser/country combination
+create table daily_tech_stats (
+  site_id  text not null,
+  day      date not null,
+  country  text not null,
+  device   text not null,
+  browser  text not null,
+  sessions int  not null default 0,
+  visitors int  not null default 0,
+  primary key (site_id, day, country, device, browser)
+);
+```
+
+Notes:
+
+- **Totals are stored, not averages.** `total_duration_sec` and `sessions` are
+  stored so average time can be calculated at read time for any date range. If I
+  stored the average per day instead, averaging those averages across a month
+  would be wrong, because days have different session counts. This is the most
+  common rollup mistake there is.
+- **`visitors` cannot be added up across days.** The same visitor appearing on
+  Monday and Tuesday is two rows of one, but one person across the range. With
+  daily hashes I can't deduplicate them anyway, so the dashboard must show
+  unique visitors per day, or label a multi-day total as the sum of daily
+  uniques.
+- Every rollup is written with `insert ... on conflict do update`, so the job
+  can be re-run for any day safely. Re-runnability is what turns a bug in the
+  rollup logic from a disaster into a chore.
+
+### Operational tables
+
+```sql
+create table daily_salts (
+  day        date primary key,
+  salt       bytea not null,
+  created_at timestamptz not null default now()
+);
+```
+
+Only today's and yesterday's rows exist. The maintenance job creates today's and
+deletes anything older. Yesterday's is kept only so a visit that crosses
+midnight can be joined up. The salt never leaves the server and is never
+included in any export.
+
+```sql
+create table rollup_runs (
+  site_id     text        not null,
+  day         date        not null,
+  kind        text        not null,   -- which rollup table
+  computed_at timestamptz not null,
+  primary key (site_id, day, kind)
+);
+```
+
+Records what has been calculated and when, so the job knows what to redo and so
+a stale dashboard can be diagnosed.
+
+---
+
+## The services, in detail
+
+### The tracking script (`s.js`)
+
+The only part of the system that runs on someone else's website. It must be
+small, must never throw an error into their console, and must never slow their
+page down. Target size is under 2 KB compressed.
+
+**What it does on load.** Reads `data-site` from its own script tag. Collects
+the path, referrer hostname, screen width, and the current time. Sends a
+`pageview`.
+
+**While the page is open.** Sends a `ping` every 15 seconds, but only while the
+tab is visible. It listens to `visibilitychange` and stops the timer when the
+tab is hidden. Without this, a forgotten background tab would report hours of
+"reading time" and ruin the average.
+
+**On leaving.** Sends an `unload` on `visibilitychange` to hidden, using
+`navigator.sendBeacon`. A normal request made while a page is closing is usually
+cancelled by the browser. `sendBeacon` exists specifically for this and hands
+the message to the browser to deliver in the background.
+
+**On single-page-app navigation.** This is the non-obvious correctness problem.
+On a React or Next.js site, clicking a link doesn't reload the page. It changes
+the URL with the History API and swaps the content. A naive script sees one page
+load for an entire session and reports one pageview no matter how many pages the
+person actually viewed, which would make "page views for each page", my headline
+metric, silently wrong on exactly the kind of modern site I'm targeting. The
+script has to patch `history.pushState` and `history.replaceState`, listen for
+`popstate`, and send a new pageview when the path changes.
+
+**What it deliberately does not do.** No cookies, no local storage, no device
+fingerprinting, no reading page content, no tracking mouse movement. If any of
+those appear, the privacy claim that justifies not having a consent banner stops
+being true.
+
+**Payload.** Kept small because it's sent every 15 seconds:
+
+```json
+{
+  "e": "pageview",
+  "s": "a1b2c3d4",
+  "i": "018f...",
+  "p": "/pricing",
+  "r": "google.com",
+  "w": 1440,
+  "t": 1753500000000
+}
+```
+
+### Ingest route
+
+Handles the highest request volume in the system and does the least work per
+request. Target response time under 10 ms, and it never touches Postgres.
+
+Steps in order, cheapest checks first so that abuse costs as little as possible:
+
+1. **Reject anything oversized.** A hard body size limit before parsing.
+2. **Shape check.** Required fields present, types correct, path length sane.
+3. **Site lookup** from an in-memory cache of `site_id -> domain`, refreshed
+   every minute. A database call here would put Postgres on the hot path of
+   every pageview on every customer site, which is exactly what I'm trying to
+   avoid.
+4. **Origin check.** Compare the request's `Origin` header to the registered
+   domain after normalising both. Mismatch is rejected.
+5. **Rate limit** per site ID and per IP, counted in Redis.
+6. **Bot check.** User agent against the known-bot list, plus basic signals.
+   Sets a flag, doesn't reject.
+7. **Build the visitor hash** from today's salt, the IP, the user agent, and the
+   site ID. Look up the country from the IP. Discard the IP.
+8. **Push** the finished event object onto the Redis list.
+9. **Return 204** with no body.
+
+It always returns 204, even for rejected events. Telling a potential abuser
+which of their forged events were accepted is free information for them, and the
+browser has nothing useful to do with an error anyway.
+
+### Ingest worker
+
+A loop, not a web service.
+
+1. Move up to 100 events from `events:queue` to `events:processing` atomically.
+2. Bulk insert them into `raw_events` in one statement, with `on conflict
+   (event_id, ts) do nothing`.
+3. On success, clear those entries from `events:processing`.
+4. On failure, leave them in `events:processing` and retry with a growing delay.
+5. Add the visitor hashes to the `online:{site_id}` set in Redis with a five
+   minute expiry.
+
+Using a processing list rather than popping straight off the queue is what makes
+this **at-least-once** delivery: if the worker dies at step 2, the events are
+still in `events:processing` and get retried by the next run. At-least-once
+means duplicates are possible, which is why step 2 ignores conflicts on
+`event_id`. The alternative, popping and hoping, loses whatever was in flight.
+
+If the queue length crosses a threshold, alert. A growing queue means the worker
+is behind or dead, and it's the earliest visible sign that something is wrong.
+
+### Session builder
+
+Runs every ten minutes. Turns events into visits.
+
+1. Take every event since the last run, minus a small safety overlap, for events
+   that arrived late.
+2. Group by `(site_id, visitor_hash)` and sort by `ts`.
+3. Walk each group in order. Start a session at the first event. If the gap to
+   the next event is 30 minutes or less, it belongs to the same session. If it's
+   more, close the session and start a new one.
+4. For each session, calculate: start, end, duration as end minus start, number
+   of pageview events, bounce as pageviews equal to one, entry and exit paths,
+   and the referrer of the first event.
+5. Mark `is_returning` if this visitor hash already has an earlier session
+   today.
+6. Write the sessions with `on conflict (session_id) do update`, so a session
+   still in progress is extended rather than duplicated on the next run.
+   Sessions with no activity for 30 minutes get `is_open = false`.
+7. Write the `session_id` back onto the raw events belonging to it.
+
+The safety overlap in step 1 matters. Events can arrive out of order and late,
+particularly `sendBeacon` messages, which the browser may deliver a few seconds
+afterwards. Processing a window that slightly overlaps the previous one,
+combined with upserts, means a late event extends its session instead of being
+dropped or creating a phantom second session.
+
+### Rollup job
+
+Runs hourly, and again at the end of each day for the final version of that day.
+
+For each site and each day that has new sessions since the last run, recalculate
+that day's summaries from the `sessions` table (excluding rows flagged as bots)
+and upsert them into the `daily_*` tables. Day boundaries use the site's own
+timezone from `sites.timezone`.
+
+The job is written so that running it twice for the same day produces the same
+result. Every write is an upsert of a fully recalculated value, never an
+increment. Incrementing seems cheaper but means a retry after a partial failure
+double counts, and there's no way to tell afterwards that it happened.
+
+### Maintenance job
+
+Once a day, early morning:
+
+1. Create partitions for the next seven days if they don't exist. Seven rather
+   than one, so a single failed run doesn't break inserts.
+2. Drop partitions older than the retention window.
+3. Generate today's salt, delete salts older than yesterday.
+4. Log table sizes and queue depth for capacity tracking.
+
+### Dashboard API
+
+Read only. Every endpoint takes a site and a date range, checks ownership first,
+and returns chart-ready data.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/sites` | The user's sites |
+| `POST /api/sites` | Register a site, generate a `site_id` |
+| `GET /api/stats/summary` | Totals for the range: pageviews, visitors, sessions, bounce rate, average duration, each with a change against the previous period |
+| `GET /api/stats/timeseries` | One point per day or per hour for charting |
+| `GET /api/stats/pages` | Top pages with views, unique visitors, average time |
+| `GET /api/stats/referrers` | Top sources |
+| `GET /api/stats/tech` | Country, device, browser breakdowns |
+| `GET /api/stats/realtime` | Visitors in the last five minutes, from Redis |
+
+Every one of these follows the same pattern internally, which is the next
+section.
+
+---
+
+## How data flows
+
+### The write path, end to end
+
+A visitor opens `example.com/pricing`.
+
+1. The page loads. `s.js` runs, reads `data-site="a1b2c3d4"`, builds a pageview
+   payload with a fresh `event_id`, and posts it.
+2. The ingest route validates it, confirms the `Origin` is `example.com`, checks
+   the rate limit, finds no bot signals, builds the visitor hash from today's
+   salt plus IP plus user agent, resolves the country, drops the IP, and pushes
+   the event to Redis. Returns 204. Elapsed time is a few milliseconds and
+   Postgres wasn't involved.
+3. The visitor reads for 90 seconds. Six pings arrive and follow the same path.
+4. They click through to `/docs`. The script notices the URL change and sends
+   another pageview.
+5. They close the tab. An `unload` goes out through `sendBeacon`.
+6. Within a second or two, the worker has moved all of these into `raw_events`
+   in one or two batched inserts.
+7. Within ten minutes, the session builder groups these nine events under one
+   `session_id`, with two pageviews, a duration of around 140 seconds,
+   `is_bounce = false`, entry `/pricing`, exit `/docs`.
+8. Within the hour, the rollup job adds them to `daily_site_stats` and
+   `daily_page_stats`.
+
+### The read path
+
+The owner opens their dashboard and asks for the last 30 days.
+
+<Flow
+  title="One dashboard load, three sources"
+  rows={[
+    {
+      lead: "days 1–29",
+      nodes: [{ label: "daily_* rollups", sub: "never changes" }],
+      note: "cached for a few minutes",
+    },
+    {
+      lead: "today",
+      nodes: [
+        { label: "sessions", sub: "today only" },
+        { label: "raw_events", sub: "not yet sessionised", op: "or" },
+      ],
+      note: "live aggregate",
+    },
+    {
+      lead: "right now",
+      nodes: [{ label: "Redis set", sub: "last 5 min" }],
+    },
+  ]}
+  caption="History is precomputed, today is computed on demand, and the live count never touches Postgres at all."
+/>
+
+1. The API resolves the logged-in user, then checks that the requested `site_id`
+   belongs to them. If not, 404 rather than 403, so the endpoint doesn't confirm
+   the existence of other people's sites.
+2. Split the range at the start of today, in the site's timezone.
+3. Days 1 to 29 come from `daily_site_stats` with a simple range scan. A few
+   dozen rows.
+4. Today comes from a live aggregate over `sessions` for today, plus any raw
+   events not yet turned into sessions. Only one day of data and only recent
+   partitions get touched.
+5. Combine the two. Sums add. Averages have to be recalculated from the combined
+   totals rather than averaged together, for the reason in the rollup notes.
+6. The realtime number comes from the size of the Redis set for that site.
+7. Cache the historical part for a few minutes. Yesterday and earlier never
+   change.
+
+**The boundary is the dangerous part.** If step 2 uses UTC while step 3 uses the
+site's timezone, some hours are counted twice and others are missed. Both sides
+of the split must use the same timezone, and the split must be exclusive on one
+side. This is worth an explicit test with a site set to a non-UTC timezone.
+
+---
+
+## Correctness, privacy, and security
+
+### Exact metric definitions
+
+Ambiguity here shows up as numbers that don't add up, so each metric is defined
+once:
+
+| Metric | Definition |
+| --- | --- |
+| Pageviews | Count of events where `type = 'pageview'`, bots excluded |
+| Visitors | Count of distinct `visitor_hash` for the day. Not summable across days. |
+| Sessions | Count of rows in `sessions` for the day |
+| Bounce rate | Sessions where `pageview_count = 1`, divided by total sessions |
+| Average time on site | `sum(duration_sec) / count(sessions)`, calculated from stored totals |
+| Average time on page | `sum(total_duration_sec) / pageviews` for that path |
+| New visitors | Visitors with no earlier session today |
+| Returning visitors | Visitors with an earlier session today. Same-day only. |
+| Visitors right now | Distinct hashes seen in the last five minutes, from Redis |
+| Entry page | The path of the first pageview in a session |
+| Exit page | The path of the last pageview in a session |
+
+Every one of these excludes rows flagged `is_bot`.
+
+### What I store and what I don't
+
+Not stored anywhere, at any point: IP addresses, cookies, device IDs, full URLs
+with query strings, full referrer URLs, names, email addresses of visitors, or
+anything else that identifies a person.
+
+Stored: a daily hash that can't be reversed and can't be linked to yesterday's,
+a page path, a referrer hostname, a country, a browser, an operating system, a
+device category, and a screen width.
+
+This is what makes the no-consent-banner position defensible. If any future
+feature needs one of the items in the first list, the legal position changes,
+and the feature needs a proper review rather than a quiet addition.
+
+### Tenant isolation
+
+Every read of analytics data must be scoped to the user who owns the site. The
+rule: no query takes a `site_id` from the request and uses it directly. It goes
+through one ownership check that resolves `(user_id, site_id)` to an internal
+site record, and everything downstream uses that record.
+
+One forgotten filter shows a customer someone else's traffic, which is the
+single worst bug this product can have. Two defences, and both are worth having:
+
+1. A single shared function that every stats endpoint must call to resolve the
+   site. No endpoint queries `sites` directly.
+2. Postgres row level security as a backstop, so that even a query with a
+   missing filter returns nothing rather than everything.
+
+Test it deliberately: create two accounts, and assert that account A requesting
+account B's `site_id` gets a 404.
+
+### Abuse
+
+| Threat | Defence | Residual risk |
+| --- | --- | --- |
+| Someone copies a public site ID and floods fake events | Origin check plus rate limits | A direct attacker forging the `Origin` header still gets through |
+| Someone scrapes another customer's stats | Ownership check on every endpoint plus row level security | Low |
+| Very large payloads or many requests | Body size cap, rate limits per site and per IP | Low |
+| Someone uses my ingest endpoint as free storage | Strict shape validation, unknown fields dropped | Low |
+
+---
+
+## When things break
+
+| Failure | Effect | What I do |
+| --- | --- | --- |
+| Redis is down | Ingest can't buffer. Events are lost while it's down. | Ingest still returns 204 so customer sites are never affected. Alert immediately. Redis being down is the one true data-loss window in the design, and it's the reason Kafka exists at scale. |
+| Ingest worker stops | Nothing is written to Postgres. Queue grows. | No data lost as long as Redis has memory. Alert on queue depth. |
+| Worker dies mid-batch | The batch stays in the processing list | Retried on the next run. Duplicates are ignored via `event_id`. |
+| Postgres is down | Worker retries and the queue grows. Dashboard is down. | Ingest keeps accepting, which is the point of the buffer. |
+| Session builder fails | Sessions and rollups go stale. Today's live numbers still work. | Job is re-runnable over a date range. Backfill when fixed. |
+| Rollup job fails | Historical charts go stale | Re-runnable, idempotent, upsert-based. |
+| Tomorrow's partition is missing | **Inserts fail outright. This is the worst one.** | Create seven days ahead, alert if fewer than three future partitions exist. |
+| Bot list has a false positive | Real traffic marked as bot and excluded | Because I flag rather than delete, fix the list and rebuild the rollups. |
+| Ad blocker blocks the script | Undercount, invisible to me | Accepted. Document it so customers aren't surprised by the gap against other tools. |
+| A customer's site gets a huge traffic spike | Queue grows, dashboard may slow down | The buffer absorbs it. This is the failure that eventually forces the ingest split. |
+
+---
+
+## Capacity
+
+Rough numbers to know where the edges are. Assume a two minute average visit, so
+around eight pings per session, and roughly 200 bytes per stored row.
+
+| Scenario | Pageviews/day | Total events/day | Raw data/day | Raw at 60 days |
+| --- | --- | --- | --- | --- |
+| Testing on my own sites | 500 | ~2,000 | 0.4 MB | 24 MB |
+| A handful of real small sites | 10,000 | ~40,000 | 8 MB | 480 MB |
+| A busy site | 100,000 | ~400,000 | 80 MB | 4.8 GB |
+| Serious traffic | 1,000,000 | ~4,000,000 | 800 MB | 48 GB |
+
+Postgres handles the first three comfortably. The last row is where the design
+stops being appropriate: inserts compete with reads, the session builder's ten
+minute window becomes a large job, and even partitioned queries slow down. That
+is the ClickHouse threshold, and it's roughly two orders of magnitude above
+where this product starts.
+
+Rollup tables stay tiny throughout. A site with 500 distinct pages produces
+around 500 rows per day, so a few megabytes a year. Keeping them forever costs
+nothing.
+
+---
+
+## What I left out on purpose
+
+| Thing | Why not now |
+| --- | --- |
+| Custom events and goals | Deferred. Mechanism already designed, no infrastructure needed. |
+| Funnels and conversion paths | Needs custom events first. |
+| Serving the script from the customer's domain to dodge ad blockers | Real value, but needs DNS or proxy setup instructions per customer. |
+| Email reports | Easy to add later, no design impact. |
+| Multiple users per site, teams, roles | Adds a permissions model to every query. Wait for someone to ask. |
+| Public shareable dashboards | Needs a second, unauthenticated read path with its own scoping rules. |
+| Session recording, heatmaps | A completely different product with completely different privacy implications. |
+| Data export API | Straightforward, just not needed on day one. |
+
+---
+
+## How this grows up
+
+Each step below is independent and can be taken when its trigger fires. Nothing
+in the architecture diagram changes shape, only the components inside the boxes.
+
+**Step 1: split ingest into its own service.** Trigger: a traffic spike makes
+the dashboard slow, or ingest needs to scale separately. Because the route
+imports nothing, this is a copy into a new deployment and a URL change in the
+script.
+
+**Step 2: replace Redis with Kafka.** Trigger: losing a few seconds of events
+during a restart stops being acceptable, or one Redis instance isn't enough.
+Kafka writes to disk and tracks each consumer's position, so a crashed worker
+resumes exactly where it stopped. The producer and consumer code changes,
+nothing else does.
+
+**Step 3: replace Postgres with ClickHouse for events.** Trigger: roughly a
+million pageviews a day, or dashboard queries getting slow despite rollups.
+Column-oriented storage means a query that adds up one column across a hundred
+million rows only reads that column. Accounts and sites stay in Postgres,
+because that data is small and relational.
+
+**Step 4: replace the rollup job with materialised views.** Once on ClickHouse,
+summaries can be maintained by the database automatically as data arrives,
+instead of by a scheduled job. My hourly job is the manual version of the same
+idea.
+
+**Step 5: replace the session builder with stream processing.** Trigger: ten
+minute session latency is too slow. Tools like Flink hold state per visitor and
+close sessions as the gap elapses, continuously rather than in batches. Same
+operation, done as events arrive.
+
+**Step 6: replace retention cron with TTL rules.** ClickHouse expires old data
+on a declared rule, and can move older data to cheaper storage first.
+
+The point worth remembering: the parts don't change what they do. Accept,
+buffer, batch-store, sessionise, summarise, serve. Only the machinery gets
+heavier.
+
+---
+
+## Build order
+
+Each step produces something that works and can be checked. The order is chosen
+so that the riskiest and least familiar parts come first, not the most visible
+ones.
+
+**Step 1: prove the pipe.** A hardcoded site ID, a script on a real page, the
+ingest route, Redis, the worker, one row landing in `raw_events`. No login, no
+dashboard, no sessions. This is the step that proves the whole idea works, and
+it's the one that's tempting to skip in favour of building screens.
+
+**Step 2: the script, properly.** Pings, visibility handling, `sendBeacon`, and
+single-page-app navigation. Test on a Next.js site with client-side routing and
+confirm that clicking between pages produces separate pageviews, because that's
+the case that quietly breaks.
+
+**Step 3: sessions.** The session builder, the 30 minute rule, durations from
+pings. Verify by hand: browse a test site in a known pattern, then check the
+session row says what actually happened. Deliberately test a bounce and confirm
+its duration isn't zero, since that's the whole reason pings exist.
+
+**Step 4: rollups.** Sessions into `daily_*` tables. Check that recalculating a
+day produces identical numbers, which proves the job is safe to re-run.
+
+**Step 5: accounts and sites.** Better Auth, site registration, generating site
+IDs, the origin check against the registered domain, the shared ownership-check
+function. Test isolation with two accounts on purpose.
+
+**Step 6: the dashboard.** Summary numbers, a timeseries chart, a top pages
+table. Combine history from rollups with today from raw and watch the boundary
+carefully.
+
+**Step 7: realtime.** The Redis set and a "visitors right now" number. Cheap,
+and it's what makes the product feel alive in a demo.
+
+**Step 8: retention.** Partitioning, the maintenance job, creating partitions
+ahead and dropping old ones. Do this before the raw table gets big, not after.
+
+**Step 9: bots.** The user agent list, basic checks, the `is_bot` flag,
+exclusion from rollups.
+
+Steps 1 to 4 are the interesting engineering. Steps 5 and 6 are ordinary web
+development. If motivation runs out, it runs out after the interesting part is
+already built and working.
+
+---
+
+## Open questions
+
+### Cross-day identity, and what "retention" can honestly mean
+
+This is the one real unresolved tension in the design, and it comes straight
+from the cookieless decision.
+
+The daily salt is what makes the visitor hash anonymous: because the salt is
+destroyed and replaced every 24 hours, today's hash can't be matched to
+yesterday's, so there's no lasting identifier for anyone. That's exactly what
+removes the need for a consent banner.
+
+It also means I can't tell that the person visiting today is the same person who
+visited last week. Which means:
+
+- **"Returning visitor" is honest within a day**, and beyond that I don't know.
+- **True retention, meaning "of the people who visited on day one, how many came
+  back on day seven", can't be calculated.** It needs stable identity across
+  days, which I've deliberately destroyed.
+
+Three ways to resolve this, and the choice has legal consequences, not just
+technical ones:
+
+**Option A: keep the limitation and change what I show.** Don't offer cohort
+retention. Show returning visitors within a day, and show a
+unique-visitors-per-day trend line, clearly labelled as daily uniques rather
+than distinct people over the period. Honest, and costs nothing.
+
+**Option B: keep a rolling window of salts.** Store the last N days of salts and
+try each one when hashing, so a returning visitor can be matched for up to N
+days. But an identifier that's stable for 30 days is, in substance, a 30-day
+tracking identifier. The anonymity argument weakens as N grows, and with it the
+justification for having no consent banner. Keeping two days, purely so a visit
+that crosses midnight isn't split in half, is a much smaller step and is what
+Plausible does.
+
+**Option C: offer an opt-in cookie mode.** Customers who need real retention and
+are willing to run a consent banner can enable it. This doubles the identity
+code path and the legal surface.
+
+**Leaning towards A, plus a two-day salt window for midnight-spanning sessions
+only.** The cost is that "retention time" as originally requested becomes
+"average time on site" plus "same-day returning visitors", and the product
+should say so plainly rather than showing a number that looks like retention but
+isn't. I need to decide before building the dashboard, because it changes what
+tiles exist.
+
+### Ping interval
+
+15 seconds is a guess. Shorter gives more accurate durations and more events.
+Longer is cheaper and blunter. An alternative used by some tools is to send
+fewer, smarter events: one at 15 seconds, then at 30, then at 60, then every
+minute, on the basis that precision matters less the longer someone stays. Worth
+revisiting once there's real data on session lengths.
+
+### Where does the country lookup happen?
+
+Resolving an IP to a country needs a lookup database in memory, which makes the
+ingest process heavier, and heavier is exactly what ingest shouldn't be. If it
+becomes a problem, the alternative is to take the country from a header provided
+by the CDN or host, which many platforms add for free.
+
+### Time zones for the dashboard, not just the rollups
+
+Rollups use the site's timezone. But what does a customer with visitors
+worldwide expect "today" to mean? Probably their own working day, which is what
+`sites.timezone` gives them. Confirm with the first real user rather than
+guessing.
+
+---
+
+## Glossary
+
+**At-least-once delivery.** A guarantee that no message is lost, at the price of
+a message sometimes arriving twice. The fix for the duplicates is to make writes
+ignore repeats, which is what `event_id` is for.
+
+**Autovacuum.** A Postgres background process that reclaims space from deleted
+rows. Bulk deletes give it a lot of work, which is why I drop partitions
+instead.
+
+**Bounce.** A visit with exactly one pageview.
+
+**Column-oriented database.** A database that stores each column together rather
+than each row together, so a query that adds up one column doesn't have to read
+the others. Much faster for analytics, much worse for editing individual
+records. ClickHouse is one.
+
+**Idempotent.** An operation that gives the same result whether you run it once
+or five times. My rollup job is idempotent, which is why a failed run can just
+be repeated.
+
+**Kafka.** A durable message queue that writes to disk and remembers how far
+each reader has got. The large-scale version of what Redis does for me.
+
+**Lambda architecture.** Serving a query by combining a slow, complete batch
+layer with a fast, recent live layer. My "history from rollups plus today from
+raw" is exactly this.
+
+**Partitioning.** Splitting one logical table into many physical tables by some
+key, here by day. Lets me delete a day instantly and lets queries skip days they
+don't need.
+
+**Rollup.** A pre-calculated summary row, for example one site, one day, one
+page, with counts.
+
+**Sessionisation.** Turning a stream of individual events into visits, by
+grouping a visitor's events and splitting them wherever there's a long enough
+gap.
+
+**`sendBeacon`.** A browser feature for sending a small message that still gets
+delivered while the page is closing, when a normal request would be cancelled.
+
+**Upsert.** Insert a row, or update it if it already exists. What makes the
+rollup job safe to re-run.
+
+---
+
+None of this is built yet. That's the honest state of it — this is the document
+I wrote so that when I start, the hard thinking is already done and the only
+thing left is typing.
+
+The part I keep coming back to is that the interesting problems here aren't the
+ones that look interesting. Not the charts. The buffer, the session boundary,
+the last page of every visit having no duration, and the fact that a partition
+that doesn't exist tomorrow breaks everything at midnight.
