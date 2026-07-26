@@ -38,6 +38,15 @@ export function Toc({ headings }: { headings: Heading[] }) {
     return () => observer.disconnect();
   }, [headings]);
 
+  // Keep the lit item visible inside the TOC's own scroll area. `nearest` is a
+  // no-op when it's already in view, so a normal read never jolts the list.
+  useEffect(() => {
+    if (!active) return;
+    for (const el of document.querySelectorAll(`[data-toc-id="${active}"]`)) {
+      el.scrollIntoView({ block: "nearest" });
+    }
+  }, [active]);
+
   // Close the mobile panel on Escape.
   useEffect(() => {
     if (!open) return;
@@ -57,6 +66,7 @@ export function Toc({ headings }: { headings: Heading[] }) {
         <li key={h.id}>
           <a
             href={`#${h.id}`}
+            data-toc-id={h.id}
             aria-current={isActive ? "location" : undefined}
             onClick={() => {
               setActive(h.id);
@@ -94,7 +104,7 @@ export function Toc({ headings }: { headings: Heading[] }) {
         <p className="mb-4 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted">
           Contents
         </p>
-        <ul className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
+        <ul className="no-scrollbar flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
           {items()}
         </ul>
       </nav>
@@ -125,7 +135,7 @@ export function Toc({ headings }: { headings: Heading[] }) {
           <p className="mb-3 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted">
             Contents
           </p>
-          <ul className="flex max-h-[50vh] flex-col gap-3 overflow-y-auto">
+          <ul className="no-scrollbar flex max-h-[50vh] flex-col gap-3 overflow-y-auto">
             {items(() => setOpen(false))}
           </ul>
         </nav>

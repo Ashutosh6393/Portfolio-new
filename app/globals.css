@@ -96,6 +96,17 @@ a {
   animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Still scrolls, but the bar stays out of the layout — for the long TOC.
+   Plain class, not @utility: Tailwind drops the nested ::-webkit- rule. */
+.no-scrollbar {
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* ---- Reading progress ------------------------------------------------ */
 /* Hairline under the nav that fills as the page scrolls. Pure CSS scroll-
    driven animation — no JS, no client component. Where `animation-timeline`
@@ -477,7 +488,8 @@ a {
 
 /* ---- Reduced motion -------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
-  html {
+  html,
+  .no-scrollbar {
     scroll-behavior: auto;
   }
   .fade-up {
