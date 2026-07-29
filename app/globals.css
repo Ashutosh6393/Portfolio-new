@@ -162,8 +162,9 @@ a {
 .prose li {
   font-size: 15px;
   line-height: 1.8;
-  color: var(--text);
-  opacity: 0.85;
+  /* Softened via colour, not `opacity` — opacity makes a group, so a child
+     could never be *more* opaque than its paragraph. */
+  color: color-mix(in srgb, var(--text) 85%, transparent);
   text-wrap: pretty;
 }
 .prose ul,
@@ -183,8 +184,8 @@ a {
   color: var(--muted);
 }
 .prose strong {
-  font-weight: 500;
-  opacity: 1;
+  font-weight: 600;
+  color: var(--text);
 }
 .prose a {
   color: var(--text);
@@ -240,8 +241,7 @@ a {
   padding: 0.65em 0.9em;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
-  color: var(--text);
-  opacity: 0.85;
+  color: color-mix(in srgb, var(--text) 85%, transparent);
 }
 .prose th:first-child,
 .prose td:first-child {
