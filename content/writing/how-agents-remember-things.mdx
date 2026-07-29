@@ -1,0 +1,368 @@
+export const metadata = {
+  title: "How agents remember things",
+  date: "2026-07-29",
+  readingTime: "14 min",
+  summary:
+    "An AI assistant that forgets everything is annoying. One that remembers everything is worse. What sits between the two is a small set of rules about what to write down, what to overwrite, and what to throw away.",
+};
+
+I wanted to answer one question properly: how does an AI assistant decide what
+to remember, and what happens when something it learned in March stops being
+true in July?
+
+I'll use one person the whole way through. Maya is a developer. She uses an AI
+coding assistant, roughly sixty separate sessions over four months, on the same
+codebase. Everything below is about what that assistant should keep, and what
+it should let go.
+
+---
+
+## The problem with remembering everything
+
+The obvious failure is an assistant that remembers nothing. Maya explains her
+folder layout on Monday. On Tuesday it asks again. Every session starts from
+zero. That's irritating, but at least it's clear what's broken.
+
+The interesting failure is the opposite one.
+
+Imagine the assistant saved a full transcript of all sixty sessions. At the
+start of session sixty-one, before Maya types a word, it pastes all of that
+back in.
+
+Three things go wrong.
+
+The first is size. Everything the assistant reads has to fit in its context
+window (the amount of text a model can hold in front of it at once, like a desk
+that only fits so many pages). Sixty sessions won't fit. You pay for every page
+that does.
+
+The second is quality, and it's worse. The model underneath works by paying
+attention across everything in front of it. Spread that attention over four
+months of transcripts and it starts missing things that are right there. People
+call this context rot. More text, worse answers.
+
+The third is the one that actually matters, and it survives even if the first
+two go away.
+
+Some of what's in there is now wrong.
+
+In March, Maya's team used REST for their API. In July they moved to GraphQL.
+Both statements are in the transcript. Both are accurate records of what she
+said. Feed the assistant all sixty sessions and it has a perfectly true memory
+that produces a false answer. It writes REST endpoints in August.
+
+So "just remember everything" fails even with an infinitely large desk. The
+problem isn't only volume. Old facts go stale, and a pile of raw history has no
+way to tell you which ones.
+
+---
+
+## Memory is a file, not a mind
+
+Here's the part that took me longest to get straight, and it changes how
+everything else works.
+
+The model has no memory. None. It doesn't carry anything from one session to
+the next. Session sixty-one is a completely fresh start, with no trace of the
+sixty that came before.
+
+So when we say the assistant "remembers" Maya's folder layout, something very
+plain is happening.
+
+<Flow
+  title="What actually happens at the start of a session"
+  rows={[
+    {
+      nodes: [
+        { label: "Session starts", sub: "model is blank" },
+        { label: "Code reads files", sub: "from disk" },
+        { label: "Text pasted into prompt" },
+        { label: "Model sees it" },
+      ],
+    },
+  ]}
+  caption="Nothing carries over. Memory is re-read and re-pasted every time."
+/>
+
+Memory isn't inside the model. It's a file sitting on a disk, and some ordinary
+code reads that file and pastes its contents into the prompt before the model
+starts working.
+
+The way I think about it now: the model is a brilliant contractor with total
+amnesia. Every morning is day one. He's excellent at the job and remembers
+nothing about the site. What makes him useful is the notebook the site manager
+hands him on the way in. And someone has to decide what goes in the notebook.
+
+That has a consequence that's easy to miss.
+
+Once those files are pasted in, the model receives one flat block of text.
+Maya's saved notes from March, the question she typed thirty seconds ago, the
+instructions the developer wrote. All of it arrives looking like the same kind
+of thing. Nothing in plain text says "this bit is four months old."
+
+So if you want the assistant to know a fact is stale, you have to write that
+down inside the file. A date. A source. Where it came from. The model can only
+know what's on the page.
+
+---
+
+## The three parts of any memory system
+
+Any of these systems, however fancy, comes down to three questions.
+
+**Storage.** Where does the information physically sit, and what extra details
+travel with it? A note in a text file, a row in a database, a page in a folder.
+
+**Structure.** What shape is it in, and what is the assistant told to write
+down in the first place? Short sentences, a table, a graph of connected facts.
+
+**Process.** How often does it get updated, and what does it get built from?
+After every message, at the end of a session, or only when someone asks.
+
+The "extra details" bit under storage is called metadata (small labels attached
+to a piece of information, describing it rather than being it). Metadata is
+doing more work than it looks like, and it splits into two kinds that people
+mix up.
+
+Some metadata helps you **find** a fact later. Keywords, a short summary, tags.
+Useful, and easy.
+
+Some metadata helps you **judge** a fact. This is the kind that gets skipped,
+and the one everything later depends on:
+
+- **Where it came from.** Did Maya say this out loud, or did the assistant
+  guess it from reading her code? "Maya said the team uses GraphQL" is much
+  stronger than "the assistant found one GraphQL file and assumed."
+- **How often it's been confirmed.** Mentioned once in March, or in twelve
+  sessions since?
+- **When it was last used.** A fact nothing has touched in three months is a
+  candidate for deletion.
+
+Together those let the system work out whether something is still true without
+asking a human every time.
+
+---
+
+## Four kinds of memory, four sets of rules
+
+The standard split comes from a paper called CoALA, which borrowed the
+categories from how psychologists describe human memory. Four kinds:
+
+**Working memory** is what's in front of the assistant right now. Maya's
+current question, the file she just pasted. It's the context window itself.
+
+**Semantic memory** is facts. "Maya's team uses GraphQL." "The auth service is
+written in Go." It usually lives in a searchable store, or in plain text files.
+
+**Episodic memory** is things that happened. "Last Tuesday we tried rewriting
+auth.ts and it broke the tests." Past sessions, boiled down to their useful
+parts.
+
+**Procedural memory** is learned methods. "When Maya asks for a database
+migration, always write the reverse one too." In practice this shows up as
+skills the assistant can pull in when needed.
+
+Fine. But four names isn't the point. Here's the point.
+
+Take two of them. "Maya's team uses REST" is a fact that becomes false in July,
+and when it does you want it **replaced**. "The auth.ts rewrite broke the
+tests" never becomes false. It happened. You'd only ever **add** more events
+beside it.
+
+Two kinds of memory, opposite handling. One gets overwritten, one never does.
+
+Run that test across all four and you get this:
+
+| Kind | How it gets written | When it gets loaded |
+| --- | --- | --- |
+| Working | never saved | always present |
+| Semantic | overwrite it when it changes | loaded up front |
+| Episodic | add to it, never overwrite | fetched when relevant |
+| Procedural | rewrite when a better method is found | pulled in on demand |
+
+That table is the actual argument for splitting memory into four kinds. Not
+that the categories are tidy. That each kind needs a different rule for writing
+and a different rule for loading.
+
+Dump all four into one file and you're forced to pick one rule for everything.
+Whatever you pick, three of the four get handled wrong. That stays true even if
+the file is small, so it isn't the size problem in disguise.
+
+The loading column is worth a second look. Semantic memory is loaded eagerly,
+because facts about the codebase are relevant to almost any question.
+Procedural memory stays out of the way until it's needed. A skill sits there as
+a one-line description, and the full instructions only get pulled in when the
+task actually calls for it. Otherwise every method the assistant has ever
+learned would be crowding the desk on every single question.
+
+---
+
+## A small notebook and a big filing cabinet
+
+Say Maya's assistant has accumulated four thousand facts about her codebase.
+Far too many to load. So you search for the relevant ones and load only those.
+
+Except searching needs something to search with. And at the moment session
+sixty-one opens, Maya hasn't typed anything yet.
+
+You can't search. There's no question yet. So you don't. You do two different
+things at two different moments.
+
+**A small block that's always loaded.** Maya's stack, her conventions, what
+she's working on this month. A few hundred words, no searching involved,
+cheap enough that you never bother deciding. It just goes in every time.
+
+**A big store that's searched on demand.** The other 3,900 facts sit on disk
+and nothing loads. Then Maya types her first message, and that message is the
+search query. She asks about the auth service, you search, you pull the twelve
+facts that match.
+
+It works like a hotel front desk. The clerk keeps your name and room number to
+hand. Everything else about your booking is in a file they go and fetch, but
+only once you've actually asked about it.
+
+The cost of the always-loaded block is that it has to stay small. Which means
+something has to decide what earns a place in it.
+
+---
+
+## Deciding what is worth keeping
+
+Getting facts back out is the easy half. Deciding what goes in is where these
+systems break.
+
+Here's a real-shaped message from one of Maya's sessions:
+
+> ugh, the staging deploy is flaky again. anyway, we've moved the whole team to
+> GraphQL, don't write REST endpoints any more. also can you make this function
+> async?
+
+Three statements. Sort them.
+
+"Make this function async" is a task. It's done in ninety seconds and then it's
+dead. Nothing to save.
+
+"Staging is flaky" is a passing complaint about something temporary. It'll be
+fixed by Thursday. Nothing to save.
+
+"We use GraphQL now" changes what the assistant does in every future session.
+Save it.
+
+The test is **lifespan**. Will this still be true, and still matter, in a
+month? Tasks and moods fail that test. Standing rules and stable facts pass it.
+
+One detail there matters more than the sorting. None of the three statements
+announced itself. Maya never said "remember this." The GraphQL line, the single
+most important thing in the message, was buried in the middle of a throwaway
+sentence between a complaint and a chore.
+
+Any system that only saves what the user explicitly asks it to save will miss
+almost everything worth saving.
+
+---
+
+## When two facts disagree
+
+So "we use GraphQL now" passes the test. But memory isn't empty. Sitting in
+there since March is a stored fact: **Maya's team uses REST.**
+
+Three options.
+
+**Add the new one, keep the old one.** Now the store holds two facts that
+contradict each other with nothing to separate them. Search for "which API
+style" and you get both, with no way to tell which one is current. This is the
+worst option and it's also the default one, because it's what happens if nobody
+writes any policy at all.
+
+**Overwrite the old one.** Cheapest by far. One row updated, storage stays
+flat, and any search only ever returns one answer. It's also lossy. The March
+fact is gone, and with it the fact that a change ever happened. Maya opens a
+file written in April and asks why it uses REST. The assistant has no idea. As
+far as it knows the team has always used GraphQL, so the file looks like a bug.
+
+**Keep both, mark the old one as replaced, with a date.** The assistant can now
+say: that file predates the switch in July. History is preserved and the
+current answer is still clear.
+
+The third one is usually right, but it isn't free, and the price isn't storage.
+
+The price is that retrieval gets harder. Search for "which API style" and you
+get two hits that directly contradict each other. Something further down the
+line has to read the dates and pick the live one. If it doesn't, you've handed
+the model both answers and hoped.
+
+That's the failure worth flagging. Marking a fact as replaced only helps if
+something is actually filtering on that mark. Plenty of systems store the
+timestamp diligently and then never check it.
+
+So the rule I'd write down: **overwrite when the old value has no future use,
+mark as replaced when the history explains something.** "Maya prefers dark
+mode" gets overwritten. "The team used REST until July" gets kept.
+
+---
+
+## Forgetting on purpose
+
+Keeping history means the store grows and never shrinks. Sixty sessions of
+churn, and most of what's in there is dead. Something has to delete.
+
+The obvious rule is to drop whatever hasn't been used in a long time. Most
+systems start there. It's wrong on its own, and here's the case that shows it.
+
+Maya has a stored rule: **never run migrations against the production database
+directly, use the migration runner.** It came up once, in March, when she
+nearly wrecked something. Nobody has touched it since.
+
+Last-used says delete it. It's the most expensive thing in the entire store to
+forget.
+
+Meanwhile "Maya prefers 2-space indentation" comes up every single session and
+matters almost not at all.
+
+Compare what happens when each one goes missing. Forget the indent rule and the
+assistant writes 4-space indents. Maya fixes it in two seconds. Forget the
+migration rule and the assistant drops a migration on the production database.
+
+The thing they don't share is the **cost of being wrong**. Not how often a fact
+is used. What it costs when it's gone.
+
+So forgetting needs two signals working together. How recently something was
+used, and how much damage its absence would do. Low on both, delete it. High
+cost, keep it forever, even if it hasn't come up since March. That's how a
+safety rule survives eight months of silence and a formatting preference
+doesn't.
+
+---
+
+## Where this still breaks
+
+Nothing above is solved, and the parts that sound cleanest are the softest.
+
+**Nothing measures cost automatically.** Someone or something has to score how
+bad it would be to forget a fact. Usually that's a model being asked to judge.
+Sometimes it's a hardcoded rule, like "anything mentioning production or delete
+is permanent." Both are guesses. The neat two-signal rule I just described sits
+on top of a number nobody can measure properly.
+
+**The write decision is made by the same kind of model that gets things
+wrong.** Something has to read Maya's message and decide the GraphQL line
+matters and the staging complaint doesn't. That judgement is a model call, and
+it will sometimes save the complaint and drop the rule.
+
+**Replaced-fact markers get ignored.** Storing a date is easy. Making every
+retrieval path respect it is the part that quietly doesn't happen.
+
+**You find out late.** A bad write in March produces a wrong answer in July,
+and the answer looks perfectly confident. There's no error, no crash, nothing
+to alert on. Just an assistant being wrong for a reason nobody can see.
+
+---
+
+The short version of all of it: memory is a file that gets re-read at the start
+of every session, and the entire design problem is deciding what to put in that
+file. Four kinds of memory exist because each needs a different rule for
+writing and loading. The write decision runs on lifespan. The conflict decision
+runs on whether the old value still explains anything. The forgetting decision
+runs on cost, not recency.
+
+Retrieval was never the hard part.
