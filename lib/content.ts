@@ -5,27 +5,21 @@
 import fs from "node:fs";
 import path from "node:path";
 import GithubSlugger from "github-slugger";
+import type { PostMeta, ProjectMeta } from "@/lib/schema";
 
-export type PostMeta = {
-  title: string;
-  date: string; // ISO date, e.g. "2026-06-14"
-  readingTime: string; // e.g. "8 min"
-  summary: string;
-};
+// Shapes live in lib/schema.ts, where the same zod definition also generates
+// /api/schema.json. Re-exported here so existing call sites keep importing from
+// "@/lib/content".
+export type { PostMeta, ProjectMeta };
 
-export type ProjectMeta = {
-  title: string;
-  summary: string;
-  stack: string[];
-  status?: "shipped" | "wip";
-  repo?: string; // source-code link, if public
-  demo?: string; // live / "visit" link, if any
-  show?: boolean; // when true, featured on the homepage; the /projects index shows all
-  order?: number; // controls list order (ascending); defaults to end
-};
+export type ContentType = "writing" | "projects";
 
 const WRITING_DIR = path.join(process.cwd(), "content", "writing");
 const PROJECTS_DIR = path.join(process.cwd(), "content", "projects");
+
+function dirFor(type: ContentType): string {
+  return type === "writing" ? WRITING_DIR : PROJECTS_DIR;
+}
 
 function slugsIn(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
@@ -49,9 +43,8 @@ export type Heading = { id: string; text: string };
 // generated with github-slugger so they match the ids rehype-slug writes at
 // build time. Fenced code blocks are skipped so a commented `## ...` never leaks
 // into the TOC.
-export function getHeadings(type: "writing" | "projects", slug: string): Heading[] {
-  const dir = type === "writing" ? WRITING_DIR : PROJECTS_DIR;
-  const file = path.join(dir, `${slug}.mdx`);
+export function getHeadings(type: ContentType, slug: string): Heading[] {
+  const file = path.join(dirFor(type), `${slug}.mdx`);
   if (!fs.existsSync(file)) return [];
 
   const slugger = new GithubSlugger();
@@ -106,4 +99,46 @@ export async function getProjects(): Promise<Project[]> {
   return projects.sort(
     (a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER),
   );
+}
+
+// --- Single documents, for the /api/{kind}/{slug} routes -------------------
+
+// Matches the `export const metadata = {...};` block at the top of every content
+// file, up to the closing brace sitting at the start of a line.
+// ponytail: a regex, not a JS parser. Every file in content/ is written to this
+// one template, by hand or by the MCP server. A post that needs a second
+// top-level export is the signal to reach for a real parser.
+const META_BLOCK = /^export const metadata = \{[\s\S]*?^\};\s*/m;
+
+// The file with its metadata block stripped — raw MDX, prose only. The server
+// pastes a freshly generated block back on top of this, so a read/write round
+// trip has to leave the text byte-identical.
+export function getBody(type: ContentType, slug: string): string | null {
+  const file = path.join(dirFor(type), `${slug}.mdx`);
+  if (!fs.existsSync(file)) return null;
+  return fs.readFileSync(file, "utf8").replace(META_BLOCK, "").trimStart();
+}
+
+export type ContentDoc = {
+  slug: string;
+  metadata: PostMeta | ProjectMeta;
+  body: string;
+};
+
+// Metadata comes from importing the module — the bundler has already parsed the
+// object literal, so nothing here reads JS out of a file. Returns null for an
+// unknown slug; the route turns that into a 404 the model can read.
+export async function getDoc(
+  type: ContentType,
+  slug: string,
+): Promise<ContentDoc | null> {
+  const body = getBody(type, slug);
+  if (body === null) return null;
+
+  const mod =
+    type === "writing"
+      ? ((await import(`@/content/writing/${slug}.mdx`)) as { metadata: PostMeta })
+      : ((await import(`@/content/projects/${slug}.mdx`)) as { metadata: ProjectMeta });
+
+  return { slug, metadata: mod.metadata, body };
 }
