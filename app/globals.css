@@ -187,9 +187,19 @@ a {
   font-weight: 600;
   color: var(--text);
 }
+/* Inline links: full-ink text plus a hairline underline, so a link reads as a
+   link inside softened body copy. */
 .prose a {
   color: var(--text);
   opacity: 1;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--muted);
+}
+/* Links that wrap a block (code frames, images) keep their own styling. */
+.prose a:has(> :is(pre, img, .code-block, .flow)) {
+  text-decoration: none;
 }
 .prose hr {
   border: none;
