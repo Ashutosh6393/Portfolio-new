@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Nav } from "@/components/site/nav";
 import { Footer } from "@/components/site/footer";
 import { profile } from "@/content/profile";
+import { Analytics } from "@vercel/analytics/next"
 import "./globals.css";
 
 const serif = Newsreader({
@@ -62,6 +63,7 @@ export default function RootLayout({
           enableSystem={false}
           storageKey="av-portfolio-theme"
         >
+          <Analytics/>
           <Nav />
           <main className="w-full flex-1 relative">{children}</main>
           <Footer />
