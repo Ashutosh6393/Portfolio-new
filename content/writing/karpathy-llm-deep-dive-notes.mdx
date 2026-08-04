@@ -1,0 +1,423 @@
+export const metadata = {
+  "date": "2026-08-04",
+  "summary": "My notes from Andrej Karpathy's 3.5-hour \"Deep Dive into LLMs like ChatGPT\", reordered into the seven stages that took a model from raw internet text to something that reasons — and the questions I had to stop and ask along the way.",
+  "title": "Notes on Karpathy's LLM deep dive",
+  "readingTime": "15 min"
+}
+
+Andrej Karpathy put out a three and a half hour video called
+[Deep Dive into LLMs like ChatGPT](https://www.youtube.com/watch?v=7xTGNNLPyMI).
+I watched it, then went back through it section by section, stopping every time
+something didn't land, until each stage made sense on its own.
+
+This post is those notes. The explanations are his — I've reordered them into
+the seven stages I needed to follow the thing, added a few tables, and kept the
+questions I had to stop and ask. If you have three and a half hours, watch the
+original instead. If you have twenty minutes, this is the shape of it.
+
+The one idea worth putting up front: there is no single event called "training".
+There are three separate stages doing three different jobs. Nearly every
+confusing thing about these models comes from mixing them up.
+
+<Flow
+  title="Three stages, three jobs"
+  rows={[
+    {
+      lead: "pre-training",
+      nodes: [
+        { label: "internet text" },
+        { label: "filter" },
+        { label: "tokenize" },
+        { label: "base model", sub: "months, millions of $" },
+      ],
+      note: "knowledge",
+    },
+    {
+      lead: "SFT",
+      nodes: [
+        { label: "base model" },
+        { label: "human-written chats" },
+        { label: "assistant", sub: "hours" },
+      ],
+      note: "persona",
+    },
+    {
+      lead: "RL",
+      nodes: [
+        { label: "assistant" },
+        { label: "practice problems" },
+        { label: "reasoning model" },
+      ],
+      note: "skill",
+    },
+  ]}
+  caption="Karpathy's analogy: pre-training is reading the textbook, SFT is studying worked examples, RL is doing the practice questions at the end of the chapter."
+/>
+
+Hold that picture. The rest of this fills it in.
+
+---
+
+## 1. Pre-training: turning the internet into tokens
+
+The first stage is the expensive one. Months of compute, thousands of GPUs, and
+the output isn't a chatbot — it's a thing that can finish your sentence.
+
+### Getting the text
+
+It starts with a crawl of the public web. Common Crawl has been scraping since
+2007. FineWeb, from Hugging Face, is a cleaned-up dataset built on top of that
+and a good stand-in for what a real lab uses.
+
+What surprised me is how small the end result is. After all the filtering, the
+final training text is around 44 terabytes. That's a large hard drive. Not a
+warehouse.
+
+### Filtering, which is most of the work
+
+Raw web pages are mostly garbage, so the pipeline throws away far more than it
+keeps:
+
+| Step | What it removes |
+| --- | --- |
+| URL filtering | Blocklisted domains — malware, spam, adult sites |
+| Text extraction | HTML, CSS, nav bars, boilerplate. Only the actual words survive |
+| Language filtering | FineWeb keeps pages that are at least 65% English |
+| PII removal | Addresses, social security numbers, anything identifying |
+
+That language filter is a design choice with consequences. Keep only English and
+you get a model that is very good at English and worse at everything else. The
+dataset is the product.
+
+### Tokenization
+
+A neural network can't read text. It needs a sequence of numbers from a fixed
+list.
+
+So text gets chopped into **tokens** — chunks that sit somewhere between a
+letter and a word. The algorithm is Byte Pair Encoding (BPE): find the most
+common pair of neighbouring symbols, merge them into one new symbol, repeat.
+Common sequences become single tokens, rare ones stay split up.
+
+GPT-4's vocabulary is 100,277 tokens. Each is just an integer ID. "hello" might
+be 15339. That's all the model ever sees.
+
+This one detail comes back to bite the models later, so it's worth sitting with:
+**a model does not see letters. It sees chunks.**
+
+### The result
+
+Llama 3 was trained on 15 trillion tokens. What comes out the other end is a
+**base model**, and Karpathy's description of it is the best one I've heard: a
+lossy zip file of the internet.
+
+Lossy is the key word. A real zip file gives you back exactly what you put in.
+This one gives you back a vague impression. It hasn't stored facts, it's stored
+the statistical shape of how text tends to go.
+
+---
+
+## 2. The network: a big fixed formula with billions of knobs
+
+I got stuck here, so I'll put my question in as I asked it:
+
+> If we haven't trained the model yet, where do the weights come from?
+
+The answer is that they start as random numbers. All of them. The very first
+thing a fresh model produces is noise.
+
+The weights aren't calculated once and installed. They're found, slowly, by
+repeating this loop billions of times:
+
+1. Take a window of tokens from the training data.
+2. Ask the model to predict the next one.
+3. Look up what the next token actually was. You already have it — the text is
+   right there. That's the answer key.
+4. Compare. Nudge every weight a tiny amount so the correct token becomes
+   slightly more likely next time.
+
+The single number tracking how badly it's doing is called **loss**. Training is
+just watching loss go down over billions of steps.
+
+A useful reframe: the model is a fixed mathematical expression with billions of
+adjustable knobs. Training doesn't change the expression. It only turns the
+knobs.
+
+### It has no memory
+
+The network is stateless. When you send a message, it runs the whole context
+from scratch. Nothing carries over between calls except the text you pass in.
+
+Everything that feels like memory in a chat product is text being resent.
+
+### The transformer, briefly
+
+The architecture is the Transformer. Inside are attention blocks, where tokens
+look at each other to work out what depends on what, alternating with
+feed-forward blocks that do the per-token processing. Around 100 layers deep in
+a modern frontier model.
+
+Karpathy doesn't do the maths in this video, and I'm not going to fake it here.
+The number to remember is that depth: about 100 layers. It matters in section 5.
+
+### Why GPUs
+
+Every step above is enormous matrix multiplication — thousands of independent
+multiply-and-add operations that don't depend on each other. A CPU does a few
+things very fast, one after another. A GPU does thousands of things at once,
+each a bit slower. For this shape of work the GPU wins by a mile.
+
+That's the whole reason Nvidia H100s are the currency of this industry.
+
+---
+
+## 3. Inference: sampling, and what a base model actually is
+
+Training is over. Now you want text out.
+
+1. You give it a starting sequence — the prefix.
+2. It returns a probability for every one of its 100,277 tokens.
+3. It picks one by flipping a weighted coin. High probability tokens come up
+   more often, but not always.
+4. The picked token gets stuck on the end and the whole thing runs again.
+
+Step 3 is why the same prompt gives different answers. These systems are
+**stochastic** by design, not by accident. Sampling is what makes them useful
+instead of a lookup table, and it's also why they drift.
+
+### A base model is not an assistant
+
+Ask a base model "what is 2+2?" and you might get back a list of more maths
+questions, or a paragraph of a forum post. It isn't dodging you. It's doing its
+actual job, which is guessing how a web page containing that line would carry
+on.
+
+It also memorises. If it saw a Wikipedia page hundreds of times, it can often
+recite chunks of it. And it hallucinates. Ask about something past its cutoff
+and it will invent a confident, plausible, wrong answer — because the token
+sequence has to continue somehow.
+
+### You can still get work out of it
+
+**Few-shot prompting** works even here. Give it a handful of examples:
+
+```plain text
+English: hello   Korean: annyeong
+English: thanks  Korean: gomawo
+English: water   Korean:
+```
+
+It spots the pattern and continues it. This is in-context learning, and it's not
+a feature anyone added. It falls out of pattern completion.
+
+You can even fake an assistant by writing a long transcript of a helpful
+conversation and letting the model continue it. That trick is essentially what
+the next stage automates.
+
+---
+
+## 4. Post-training: teaching it to be an assistant
+
+Here's what I found genuinely surprising. The maths in this stage is identical
+to pre-training. Same algorithm, same loop, same loss.
+
+**Only the data changes.** Out goes the internet. In comes a curated set of
+conversations between a "user" and an "assistant".
+
+| | Pre-training | Supervised fine-tuning |
+| --- | --- | --- |
+| Data | Trillions of tokens of web text | Hundreds of thousands of chats |
+| Time | ~3 months | ~3 hours |
+| Teaches | World knowledge | How to behave |
+
+Three hours, because the dataset is tiny by comparison. All the expensive
+knowledge is already in the weights. This stage is only shaping how it comes
+out.
+
+### Where the conversations come from
+
+People write them. Companies hire contractors, hand them a prompt, and have them
+write the response the assistant *should* have given. The instruction documents
+run to hundreds of pages, and the core of them is: be helpful, be truthful, be
+harmless.
+
+When a prompt asks for something dangerous, the labeller writes the refusal.
+Train on thousands of those and refusing becomes the statistically natural thing
+to do. There's no rule engine. No if-statement. Just examples.
+
+Which leads to the line from this video I keep coming back to: when you talk to
+an assistant model, you are talking to a **statistical simulation of a human
+labeller** following those instructions. Not a mind. Not a rulebook. An average
+of trained contractors.
+
+These days a lot of that data is generated by other models and edited by humans,
+which scales it up but doesn't change the shape of the thing.
+
+### Turn markers
+
+To tell the model where a turn starts and stops, special tokens get added that
+never appeared in pre-training — `<|im_start|>` and `<|im_end|>` in GPT-4's
+scheme. A conversation is still one flat sequence of tokens. The markers are the
+only thing separating you from it.
+
+---
+
+## 5. LLM psychology: hallucinations, tools, and tokens to think
+
+This section is the one that changed how I actually use these tools.
+
+### Why they make things up
+
+A model that doesn't know something has no built-in way to notice. It was
+trained on text where questions get answered confidently, so it produces a
+confident answer. The tone is copied from the training data, and the tone is not
+connected to whether the content is right.
+
+The fix isn't clever prompting. It's more training data. Researchers probe the
+model to find where its knowledge runs out, then add examples where the correct
+answer is "I don't know" — teaching it that admitting ignorance is a valid
+completion.
+
+### Parameters versus context
+
+The distinction that made this click for me:
+
+| | Parameters | Context window |
+| --- | --- | --- |
+| Feels like | Something you read a year ago | Notes open in front of you |
+| Accuracy | Vague, compressed, sometimes wrong | Exact |
+| How it got there | Training | You pasted it in |
+
+This is why tools help so much. A web search doesn't make the model smarter. It
+moves information from the fuzzy place to the precise place. Same for a code
+interpreter — the model writes Python and runs it instead of doing arithmetic in
+its head.
+
+The practical version: if you have the source, paste the source.
+
+### Why models need room to think
+
+Remember the ~100 layers. That's a fixed budget of computation per token. Not
+per question. **Per token.**
+
+Ask for a hard answer in one token and you're asking the model to fit the entire
+problem into one pass through those layers. It usually can't.
+
+Let it write intermediate steps and two things happen. The work gets split
+across many passes instead of one. And each partial result lands in the context
+window, where it can be read back exactly. That's chain of thought, and that's
+why it works.
+
+### The jagged edges
+
+Two famous failures, both explained by tokenization:
+
+- **Counting the r's in "strawberry".** The model sees two or three token IDs,
+  not ten letters. You're asking it to count something it can't see.
+- **Is 9.11 bigger than 9.9?** Models often get this wrong. One theory in the
+  video is interference from Bible verse numbering, where 9.11 does come after
+  9.9. The statistical association fights the arithmetic.
+
+Karpathy's summary is that these systems are "Swiss cheese" — very strong across
+most of the surface, with holes in places you'd never predict from how good the
+rest is. You can't infer reliability on one task from performance on a harder
+one.
+
+---
+
+## 6. Reinforcement learning: practice problems
+
+SFT teaches imitation. It shows the model what a good answer looks like. It
+doesn't teach the model how to get there.
+
+RL does. In domains where you can check the answer — maths, code — the setup is:
+
+1. Give the model a problem.
+2. Let it generate thousands of attempts, called rollouts.
+3. Check which ones landed on the right answer.
+4. Reinforce whatever those attempts did.
+
+Nobody tells it which method to use. It finds paths that work and does more of
+them.
+
+### What emerged
+
+This is how the reasoning models came about — DeepSeek R1, OpenAI's o-series.
+Left to practise, the models developed strategies nobody wrote down for them:
+backtracking after a dead end, re-reading the problem from a different angle,
+checking their own arithmetic before committing.
+
+Responses got much longer during this stage, because thinking takes tokens.
+
+### When there's no right answer
+
+You can't score a joke automatically. So for open-ended work, RLHF: humans rank
+a handful of outputs best to worst, those rankings train a separate network
+called a **reward model**, and then the main model practises against that
+reward model instead of against people.
+
+The catch is real and worth knowing. The reward model is an imitation of human
+taste, not human taste. Run RL against it long enough and the model finds
+nonsense inputs that score highly — adversarial examples that game the judge.
+So RLHF gets stopped early. It can't be run to convergence the way verifiable RL
+can.
+
+### Move 37
+
+The reason people care about RL is AlphaGo. Move 37 was a play the commentators
+called a mistake and which turned out to be brilliant. It came from
+self-play, not from imitating human games.
+
+Imitation caps you at human level. Practice doesn't. Whether that transfers from
+Go to language is an open question, and it's the interesting one.
+
+---
+
+## 7. Where this is heading
+
+The last section is shorter and more speculative.
+
+**Multimodal by default.** Audio and images get tokenized too — sound as slices
+of a spectrogram, images as patches. Once everything is tokens, it's the same
+machinery. No separate systems bolted together.
+
+**Agents.** The shift from answering a question to doing a job that runs for
+hours, including driving a browser and a keyboard directly.
+
+**Test-time training.** Right now a deployed model is frozen. It learns nothing
+except what fits in its context window, and that gets thrown away. Letting
+models update themselves during use is open research and would change a lot.
+
+### Getting hold of models
+
+- **Closed models** — ChatGPT, Gemini, Claude. You use them through the
+  provider.
+- **Open weight models** — Llama, DeepSeek. The company publishes the
+  architecture code and the actual parameter values, so you can host them
+  yourself or use a provider like Together.ai or Hyperbolic. DeepSeek R1 went
+  out under MIT, which was unusual for a model that strong.
+- **Locally** — LM Studio runs smaller and distilled models on a laptop with no
+  internet.
+
+For keeping up: the LMSYS Chatbot Arena leaderboard for blind head-to-head
+rankings, the AI News newsletter, and following researchers directly on X.
+
+---
+
+Three things stuck with me after all this.
+
+Everything about how these models behave traces back to a decision made during
+one of three stages. Confident wrong answers come from pre-training data.
+Refusals come from labelling instructions. Long thinking traces come from RL.
+Once you know which stage produced a behaviour, it stops feeling arbitrary.
+
+Tokens are the unit of everything. Knowledge, memory, and thinking are all
+measured in them. Giving a model more room to work is not a trick, it's the
+mechanism.
+
+And these are probabilistic systems, so the output is a draft. Karpathy's advice
+at the end is to treat the work as yours, and to check it. That part isn't going
+to be automated away soon.
+
+Watch [the original](https://www.youtube.com/watch?v=7xTGNNLPyMI) if any of this
+was interesting. It's three and a half hours and worth every one of them.
