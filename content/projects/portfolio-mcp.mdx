@@ -1,0 +1,91 @@
+export const metadata = {
+  "title": "Portfolio MCP",
+  "summary": "A remote MCP server for my own site. Six tools that read, draft and open a pull request from any Claude client, so a post can reach a preview URL from a phone.",
+  "stack": [
+    "MCP",
+    "Claude",
+    "Bun",
+    "GitHub API",
+    "Spec Driven Development"
+  ],
+  "status": "shipped",
+  "repo": "https://github.com/Ashutosh6393/Portfolio-MCP",
+  "show": true,
+  "order": 3
+}
+
+Every post I have published started on a laptop, because that is where the repo
+is. Ideas that arrive anywhere else mostly do not get written. Portfolio MCP is
+six tools that let Claude read, draft and publish to my site from anywhere, and
+one thing it deliberately cannot do.
+
+## The problem
+
+The writing was never the slow part.
+
+- You have the idea on a train. By the laptop it is a bullet point you no longer
+  believe in.
+- The metadata is a JS object literal you hand-copy from the last post. Miss a
+  key and Vercel tells you four minutes later.
+- Every writing needs a `readingTime`. Nothing on the site says so. I found out
+  by fetching `api/schema.json` and reading it.
+- Give a model write access and eventually it commits to `main` at 11pm, from a
+  phone, with no diff you can read.
+
+The friction is not the writing. It is everything either side of it.
+
+## How a post gets out
+
+```
+phone / chat  ──►  get_skill  ──►  save_draft  ──►  publish  ──►  [merge]
+                     │               │               │
+                   skills/         drafts/         one PR
+```
+
+The tools move bytes. None of them writes a post, and none merges one. `publish`
+opens a pull request on the public repo from a branch called
+`publish/{kind}/{slug}` with no timestamp in it, so calling it five times from a
+phone leaves one PR to review. The merge button is the gate and the token cannot
+reach it. A ruleset on `main` requires a pull request, so the guarantee holds
+even when this code is wrong.
+
+Revising a live post is the same four calls in an order the model already uses:
+
+```
+get_content  ──►  edit  ──►  save_draft  ──►  publish
+     ▲                                          │
+     └──────────  preview looks wrong  ─────────┘
+```
+
+## The parts
+
+| Piece | What it does |
+| --- | --- |
+| Six tools | `list_content`, `get_content`, `get_skill`, `save_draft`, `publish`, `discard_draft`. One file each in `tools/`, the only layer allowed to import the MCP SDK. |
+| Two other repos | `workshop` is private and holds drafts, skills and templates. `portfolio` is public and receives pull requests. Neither is ever cloned. Every read and write is one GitHub API call. |
+| Skills | `get_skill` returns the drafting rules and the template together. A template with no rules is a mystery, and a skill without its template is half an answer. |
+| The validator | A small interpreter in `lib` that fetches the site's live `api/schema.json` and walks it. Ten keywords, no dependency. One definition of valid, and it lives on the site. |
+| Auth | An unguessable secret in the URL path. One user, so OAuth is telling one person apart from themselves. Two `/health` routes: one for Fly's probe, one behind the secret that really calls the site, both repos and the schema. |
+| Tests | 172, all green. Services take their dependencies as an argument, so a test passes an object literal and no mocking framework exists in the repo. |
+
+## Two decisions worth the space
+
+**A draft is the exact file that gets published.** YAML frontmatter is the
+obvious answer and it needs no parser. It also creates a second metadata format
+and a conversion step, so what the preview renders is not what was saved. Real
+MDX means `publish` copies bytes instead of translating them. Reading the block
+back is a span and a `JSON.parse`, because the server wrote it and controls the
+shape at both ends. No parser, no `eval`.
+
+**The schema validator is mine rather than `ajv`'s.** The site's schema uses ten
+keywords, no `$ref`, no composition. A library buys correctness on the keywords
+the document does not contain, for a dependency tree I have not run under Bun.
+What makes it safe is that an unknown keyword is a refusal, never a skip. If the
+site adds `maxLength` tomorrow, `publish` says it cannot check the metadata
+rather than quietly passing a post it only half read.
+
+## Outcome
+
+Publishing used to be six steps that all needed a laptop: find the repo, copy a
+template, hand-write the metadata, commit, push, wait for Vercel. It is now
+three tool calls from anywhere and a merge button I still press myself.
