@@ -1,0 +1,334 @@
+export const metadata = {
+  "date": "2026-08-07",
+  "summary": "Notes from Stanford's CME 295 opening lecture, rebuilt as the path I actually took: how text becomes numbers, why RNNs broke, what query/key/value do, and what really happens on one forward pass.",
+  "title": "From tokens to a predicted word: how a transformer actually runs",
+  "readingTime": "13 min"
+}
+
+I worked through the first lecture of Stanford's CME 295 (Transformers and Large
+Language Models) and kept stopping to ask questions until each step held up on
+its own. This is that path rather than a summary of the slides. It goes from
+"text is just letters" to "the model picked this word", and it stops at every
+place where I had to back up and ask something.
+
+Two things I got wrong along the way, which I'll flag where they come up: I was
+treating the encoder/decoder model and GPT as one architecture, and I thought
+the embedding table was most of a model's parameters. Neither is true.
+
+---
+
+## Text has to become numbers first
+
+A model does arithmetic. It cannot do anything with the letter "b". So before
+anything else, text gets cut into pieces called tokens, and each token gets
+turned into a list of numbers.
+
+Cutting the text up is called tokenization, and it happens *outside* the
+model. It's ordinary code, not learned weights. The model receives a list of
+token IDs, nothing more.
+
+### Three ways to cut text up
+
+| Level | How it splits | Good | Bad |
+| --- | --- | --- | --- |
+| Word | one token per word | short sequences, each token means something | `run` and `runs` are unrelated strangers; unseen words become `<unk>` |
+| Subword | splits on roots and endings | shares the root between `bear` and `bears`; almost nothing is unseen | sequences get longer, so more compute per sentence |
+| Character | one token per letter | typos barely hurt it; nothing is ever unseen | very long sequences, and a single letter carries no meaning |
+
+Real models use subword tokenization. It's the middle option and it wins on the
+thing that matters: a word the model has never seen still gets split into pieces
+it has seen.
+
+The "unseen word" problem has a name, out-of-vocabulary. With word-level
+tokens, every name, typo and new product gets replaced by a single `<unk>`
+token, so the model is handed a blank where the information was.
+
+### Why one-hot vectors were a dead end
+
+The first way people turned tokens into numbers was one-hot encoding. Give the
+vocabulary a fixed order, then represent token number 4 as a list of zeros with
+a single 1 in position 4.
+
+```plain text
+vocabulary: [ a, bear, book, soft, the ]
+
+bear -> [0, 1, 0, 0, 0]
+soft -> [0, 0, 0, 1, 0]
+book -> [0, 0, 1, 0, 0]
+```
+
+This works, and it tells you nothing. Every pair of these vectors is at right
+angles to every other pair. Measured by the usual similarity test, cosine
+similarity (the angle between two vectors, where 0° means "same direction" and
+90° means "unrelated"), `bear` and `soft` score exactly as related as `bear` and
+`book`: zero.
+
+So the representation itself throws away the one thing you wanted, which is that
+some words belong near each other.
+
+---
+
+## Word2vec: making the numbers mean something
+
+Word2vec (2013) fixed this by refusing to hand-design the vectors at all. Give
+each word a short list of numbers, start them random, then train them on a fake
+task and keep the numbers.
+
+The fake task comes in two flavours:
+
+- **CBOW** shows the model the words around a gap and asks it to guess the
+  missing word. `the teddy ___ was soft` → `bear`.
+- **Skip-gram** does the reverse. Given `bear`, guess the words likely to sit
+  around it.
+
+Nobody wants a model that fills in blanks. The blank-filling is the excuse. To
+get good at it, the model is forced to put words that appear in similar company
+close together, and that side effect is the actual product. The famous result is
+that direction in this space starts carrying meaning: the step from Paris to
+France looks like the step from Berlin to Germany.
+
+These learned vectors are embeddings. Unlike tokenization, the embedding lookup
+lives *inside* the model. It's a table of learned weights, one row per token in
+the vocabulary, and looking up a token is just fetching its row.
+
+That split confused me for a while, so, plainly: **tokenization is code that
+runs before the model, embedding is a weight table that is part of the model.**
+
+---
+
+## RNNs, and the three ways they broke
+
+Before transformers, sequences were handled by recurrent neural networks. An RNN
+reads one token at a time and carries a single vector forward as its memory,
+called the hidden state.
+
+At step `t` it takes two inputs, the current token and the hidden state from
+step `t-1`, and produces a new hidden state. For classification you read the
+sentence to the end and use the last hidden state to predict a label. For
+translation you read the whole source sentence into a final vector, then hand
+that vector to a decoder to start writing the output.
+
+The idea is clean. Three problems killed it.
+
+**Vanishing gradients.** Training works by pushing an error signal backwards
+through every step the model took. Through an RNN, that means multiplying by a
+number at each step. Multiply a hundred numbers smaller than one together and
+you get roughly zero. So the error signal reaching the first word of a long
+sentence is nothing, and the model cannot learn anything that depends on it.
+
+**A fixed-size memory.** The entire sentence read so far has to fit in one
+vector. Long input gets squeezed, and the early part is what gets squeezed out.
+
+**No parallelism.** You cannot start word 10 before finishing word 9. The
+dependency is built into the design, which means a GPU full of idle cores has
+nothing to do.
+
+### LSTMs patched it, and it wasn't enough
+
+LSTMs (Long Short-Term Memory, 1997, not the 1980s as I first noted) added a
+second track alongside the hidden state, called the cell state, plus small
+learned gates that decide what to write to it, what to erase, and what to read
+out.
+
+The cell state is closer to a notepad than to a running summary. Information can
+sit on it untouched across many steps instead of being blended and re-blended,
+which is what makes the gradient survive further back.
+
+It genuinely helped. It did not fix the third problem at all, and it only pushed
+the first two further out. The reading is still strictly one token at a time.
+
+---
+
+## Attention: let every word ask a question
+
+Attention drops the relay entirely. Instead of information reaching word 50 by
+being passed hand to hand through words 1 to 49, every word looks at every other
+word directly, in one step.
+
+That single change removes all three RNN problems. The path from word 1 to word
+50 is now one hop, so the gradient survives. There is no fixed-size summary to
+overflow. And since no word waits for another, the whole thing is one big matrix
+multiply, which is exactly what GPUs are for.
+
+### Query, key, value on one ambiguous word
+
+Take the word `bank`. On its own it's two words wearing one spelling. In `he
+sat on the bank of the river` the context settles it, and attention is how that
+context gets in.
+
+Each token's embedding is multiplied by three learned weight matrices, producing
+three vectors:
+
+- **Query** is what this token wants to know. Roughly: "is there anything about
+  water or about money near me?"
+- **Key** is what this token offers to others. `river` advertises something
+  water-shaped.
+- **Value** is the content this token contributes if someone attends to it.
+
+The model compares one token's query against every token's key with a dot
+product, which is high when two vectors point the same way. Those scores get
+divided by the square root of the vector length (large dot products otherwise
+push the next step into a corner where it stops learning), then passed through
+softmax, which turns them into positive weights summing to 1.
+
+```plain text
+query("bank") · key("river")  ->  high score
+query("bank") · key("the")    ->  low score
+
+after softmax:  river 0.61   sat 0.14   the 0.05   ...
+
+new vector for "bank"  =  0.61 * value("river")
+                        + 0.14 * value("sat")
+                        + 0.05 * value("the")   + ...
+```
+
+The output for `bank` is a weighted average of everyone's value vectors. Since
+most of the weight landed on `river`, most of what `bank` now carries is
+river-flavoured. The token started generic and came out specific, and no rule
+about rivers was written anywhere.
+
+### Multi-head attention
+
+One set of query/key/value matrices can only look for one kind of relationship.
+So models run several in parallel, each with its own matrices, and concatenate
+the results. One head may end up tracking which noun a verb belongs to, another
+which pronoun refers to whom. Nobody assigns these roles. They fall out of
+training.
+
+---
+
+## One full pass through the model
+
+<Flow
+  title="Tokens in, one token out"
+  rows={[
+    {
+      lead: "outside",
+      nodes: [{ label: "text" }, { label: "tokenizer" }, { label: "token IDs" }],
+      note: "plain code, no weights",
+    },
+    {
+      lead: "inside",
+      nodes: [
+        { label: "embedding table", sub: "one row per token" },
+        { label: "+ positional encoding" },
+      ],
+    },
+    {
+      lead: "× N layers",
+      nodes: [
+        { label: "attention", sub: "tokens read each other" },
+        { label: "feed-forward", sub: "each token alone" },
+      ],
+      note: "96 layers in GPT-3",
+    },
+    {
+      lead: "out",
+      nodes: [
+        { label: "unembed", sub: "→ 50,257 scores" },
+        { label: "softmax" },
+        { label: "sample one token" },
+      ],
+    },
+  ]}
+  caption="Attention is the only step where tokens see each other. Everything else treats them one at a time."
+/>
+
+The one line worth carrying away from that diagram: **attention is the only
+place tokens exchange information.** The feed-forward layer after it processes
+each token in isolation, which is where a lot of the model's flat factual
+knowledge appears to sit. Stack those two steps, mix, repeat, and each layer
+works with meanings the layer below already sharpened.
+
+At the end, the final token's vector is multiplied by an unembedding matrix,
+turning it into one score per vocabulary entry. Softmax makes those scores
+probabilities. The model picks one, appends it to the input, and runs the entire
+thing again for the next word.
+
+### Positional encodings
+
+Attention has no sense of order. If every token reads every other token in one
+step, then "dog bites man" and "man bites dog" arrive as the same bag of words.
+
+The fix is to add a position signal to each embedding before the first layer,
+built from sine and cosine waves at different frequencies. The vector for `dog`
+in slot 1 is now slightly different from `dog` in slot 3, and attention can pick
+up on the difference.
+
+### The two architectures I was mixing up
+
+This is the correction I owe from the top of the post. The lecture describes an
+encoder–decoder transformer, the 2017 translation model. GPT is not that.
+
+| | Encoder–decoder (2017) | Decoder-only (GPT) |
+| --- | --- | --- |
+| Built for | translation, text in one language out in another | continue this text |
+| Encoder | yes, reads the whole input at once, every token sees every token | none |
+| Decoder | yes, writes the output one token at a time | this is the whole model |
+| Cross-attention | yes, output queries look at encoder keys and values | none, there is nothing to look at |
+| Masking | in the decoder only | throughout |
+
+Masking is worth spelling out. When writing token 5, the model must not read
+tokens 6 onward, because at inference time they don't exist yet. Masking sets
+those attention scores to negative infinity before softmax, so their weight
+comes out as zero. Training then runs on all positions at once without letting
+any of them cheat.
+
+So if you read "cross-attention" in a description of ChatGPT, the description is
+describing a different model.
+
+---
+
+## What "trained" and "1B parameters" actually mean
+
+Parameters are every number in the model that training is allowed to change.
+Concretely: the embedding table, the query/key/value matrices in every attention
+head, the feed-forward matrices, the biases, the unembedding matrix. A 1B
+parameter model has a billion of those numbers.
+
+I assumed the embedding table was most of it. It isn't close. For GPT-3, the
+embedding table is about 617 million numbers out of roughly 175 billion, so
+under half a percent. Everything else is in the 96 layers of attention and
+feed-forward weights. The lookup table is the smallest part of the model.
+
+Training is a loop:
+
+1. Feed in real text and let the model predict the next token.
+2. Score how wrong the prediction was against the token that actually came next.
+3. Push that error backwards to find, for every parameter, which direction would
+   have made the answer better.
+4. Nudge all of them a little that way.
+5. Repeat, trillions of tokens deep.
+
+Nobody labels this data. The next word in the text is the answer, so the text
+grades itself.
+
+Perplexity is the usual number reported here. It measures how surprised the
+model was by the token that actually appeared, so lower is better. That is the
+opposite direction from BLEU and ROUGE, the translation and summarisation scores,
+where higher is better. (The lecture pronounces BLEU as "blue", which is right,
+but it's spelled as an acronym.)
+
+### Frozen weights, and why context is not memory
+
+This was the answer that reordered things for me. When you send a prompt to a
+released model, **not one parameter changes.** Training finished before the model
+shipped. What you get is inference: the fixed weights run the forward pass and
+produce a probability distribution.
+
+The model does appear to remember what you said three messages ago, and that
+happens for a completely different reason. Your whole conversation is fed back in
+as input on every single turn. The remembering is attention reading tokens that
+are sitting right there in the input, using weights that never move.
+
+Which is why the memory ends when the context window fills, and why nothing you
+type teaches the model anything. The conversation is input. The weights are the
+model. They are not the same thing.
+
+---
+
+The thing I'd underline after all this is how little of it is designed. Nobody
+writes a rule for rivers, or assigns a head to grammar, or decides where facts
+get stored. There's a lookup table, three learned matrices per head, a stack of
+layers, and a loop that nudges numbers toward less surprise. What comes out the
+other side is the behaviour.
