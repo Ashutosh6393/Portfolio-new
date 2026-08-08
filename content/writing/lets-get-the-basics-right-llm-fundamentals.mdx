@@ -1,0 +1,715 @@
+export const metadata = {
+  "date": "2026-08-09",
+  "summary": "What actually happens when you send a message to an AI model: the memory it doesn't have, how it picks each word, why thinking is just writing, and why the bill looks so strange.",
+  "title": "Let's get the basics right: LLM fundamentals",
+  "readingTime": "25 min"
+}
+
+I have been building things on top of AI models for a while without properly
+understanding the machinery. That works until it doesn't. Then you are staring
+at a truncated answer, or a bill five times bigger than you expected, or a bot
+that has quietly forgotten what the customer told it.
+
+So I went back and learned the basics properly. This post is what I found.
+
+To keep it concrete I am using one example the whole way through: a help desk
+bot for a company called AcmeCloud. It answers customer questions about the
+product. It reads the help docs, handles tickets, and sometimes issues refunds.
+Every idea below shows up in that bot.
+
+No prior knowledge needed. One word I have to introduce early, because
+everything else is built on it.
+
+A **token** is a chunk of text. Roughly three quarters of a word. "Password"
+might be one token. "Unsubscribing" might be three. Models don't read letters
+or words. They read tokens. Everything in this post is measured in them.
+
+If you want the layer underneath this post, I wrote about
+[how text becomes numbers and what happens on one forward pass](/writing/transformers-from-tokens-to-prediction)
+separately. You don't need it to follow along here.
+
+---
+
+## The model forgets everything
+
+Here is the first thing that surprised me. The model has no memory at all.
+
+Not a short memory. None. Every single time you send a message, the model
+starts completely blank. It has no idea you spoke to it a second ago.
+
+So how does a chat work? Because the whole conversation gets sent again, from
+the top, every time. Message 20 in a chat is not one message. It is messages 1
+through 20 in a bundle, handed over fresh.
+
+Think of a doctor with no memory of yesterday. Every visit, you bring the
+entire file and they read it from page one. The conversation feels continuous
+to you. On their side there is no continuity, only a thicker file each time.
+
+The **context window** is how big that file is allowed to be. When a company
+says a model has a 200,000 token window, that is the size of the folder.
+
+### Three things you never see going in
+
+The conversation is only part of what gets sent. Every call to the AcmeCloud
+bot carries four things, and the customer sees one of them.
+
+```plain text
+  ┌─────────────────────────────┐
+  │ system prompt               │  your instructions: "you are a
+  │                             │  help desk bot, be polite..."
+  ├─────────────────────────────┤
+  │ tool definitions            │  the list of things it can do,
+  │                             │  written out in full
+  ├─────────────────────────────┤
+  │ help docs you looked up     │  pages fetched for this question
+  ├─────────────────────────────┤
+  │ the whole chat so far       │  messages 1 to 20
+  ├─────────────────────────────┤
+  │ room for the reply  ← must fit in here too
+  └─────────────────────────────┘
+       all of this = one budget
+```
+
+That last row is the part people miss. The reply comes out of the same budget
+as everything you sent in. It is not one limit for input and another for
+output. If you fill 199,000 of a 200,000 token window, the model has 1,000
+tokens left to answer in. It will run out mid-sentence.
+
+### Where the number actually comes from
+
+I assumed the window size was a business decision. Mostly it isn't.
+
+During training, the model learns where words sit in a sequence. Position 1,
+position 2, position 500. It only ever sees sequences up to a certain length,
+so it has no idea what to do at position 300,000. It has never been there.
+
+Stretching that range further is a separate, expensive training run on long
+documents. The advertised window is roughly "how far we stretched it, tested
+it, and it still worked."
+
+A tape measure is the closest thing I can think of. The marks are printed at
+the factory. You cannot read five metres off a two metre tape by pulling
+harder.
+
+Two other forces push the number down. Longer input costs much more to
+process, because every token in the input compares itself against every other
+token. Double the length and the work roughly quadruples. And while the model
+is answering, it keeps a working scratchpad in memory for every token it has
+seen, which sits on expensive hardware. One customer with a million tokens
+loaded can eat the capacity of many customers with short chats.
+
+So providers cap the window to protect the machines. Sometimes they also gate
+the top end behind a higher price tier, which is where the business part comes
+in. Both things are true.
+
+One warning that saved me later. **The stated limit is not where quality
+drops.** Accuracy starts sagging well before you reach the ceiling,
+particularly for facts buried in the middle of a long input. Do not treat
+200,000 as "fine up to 200,000, broken at 200,001."
+
+### What breaks: the window fills up
+
+The AcmeCloud bot has a chat that fits about 30 messages. The customer sends
+message 31. Something has to go.
+
+The easy option is to drop the oldest messages. It is also usually the wrong
+one, because of what people put in their first message:
+
+> I'm on the Enterprise plan, Windows 11, and my account email is different
+> from my billing email.
+
+People state their setup once and never repeat it. Dropping the oldest
+messages throws away exactly that, and keeps the small talk. By message 35 the
+bot is confidently answering a question about the wrong plan, and the customer
+has to explain themselves again. From their side it looks like the bot stopped
+listening.
+
+The better option is to summarise the old messages into a short set of facts,
+keep that at the top, and let the raw messages go.
+
+```plain text
+before                        after
+──────────────────────────    ──────────────────────────
+msg 1  plan + OS + email      summary: Enterprise plan,
+msg 2  ...                    Win 11, billing email
+msg 3  ...                    differs, tried restarting,
+...    (28 more messages)     issue is with SSO login
+msg 30 ...                    ──────────────────────────
+                              msg 26 ...
+                              ...
+                              msg 31 ...
+```
+
+This has its own failure, and it is a quiet one. Summarising is lossy and
+permanent. Whatever the summary leaves out is gone, and you find out only when
+the model needs it and doesn't have it. So the fix is to pin certain things and
+never let them be summarised away. Plan, account ID, the original problem.
+Everything else can go.
+
+---
+
+## How it picks the next word
+
+The model does not choose a word. It produces a score for every word it knows,
+all at once, ranked. For "the cat sat on the ___" you get something like: mat
+40%, floor 15%, chair 8%, roof 2%, then thousands more trailing off into
+nonsense.
+
+Something separate then picks one from that ranked list. That picker is what
+the settings control.
+
+The obvious approach is to always take the top one. That gives you the same
+answer every time, which is genuinely useful. It also has two problems.
+
+It goes bland. The most likely word is the safest word, and 300 safe words in
+a row is grey, generic text. Every reply opens with "I understand your
+frustration."
+
+And it can loop. If "please" leads to "let", which leads to "us", which leads
+to "know", which leads back to "please", the model can drive in a circle
+forever. There is no jiggle to break it out.
+
+A driver who always takes the widest road is sensible, and will never find the
+shortcut. If the widest road loops back on itself, they will drive it all
+night.
+
+### Temperature
+
+**Temperature** decides how often a lower ranked word gets picked. It does not
+change the ranking. It flattens or sharpens the gaps between the scores.
+
+```plain text
+same scores from the model, three temperatures
+
+temp 0.0   mat   ████████████████████████  99%
+           floor ▏                          1%
+           → always "mat"
+
+temp 0.7   mat   ████████████████          55%
+           floor ██████                    20%
+           chair ███                       10%
+           → usually "mat", sometimes not
+
+temp 1.5   mat   ███████                   25%
+           floor █████                     18%
+           chair ████                      15%
+           roof  ███                       11%
+           → genuinely unpredictable
+```
+
+Low temperature stretches the leader further ahead. High temperature squashes
+everyone closer, so long shots get a real chance.
+
+Which one you want depends on whether the task has one right answer. The
+AcmeCloud bot has two jobs and they want opposite settings.
+
+| Job | Setting | Why |
+| --- | --- | --- |
+| Sort a ticket into billing, bug, or account | low | one right answer, and you'd be annoyed if a rerun disagreed |
+| Write the friendly opening line of the reply | higher | many acceptable answers, repetition is the enemy |
+
+Anything where you are pulling a fact out, classifying, or writing code wants
+low. Anything where variety is a feature wants higher.
+
+### Cutting off the tail
+
+Two more settings decide who is even allowed in the running, before temperature
+does its thing.
+
+**top-k** keeps the best k words and throws the rest away. k=5 means only the
+top five are ever candidates.
+
+**top-p** keeps adding words from the top until their odds add up to p, then
+stops. p=0.9 means "keep whoever makes up the first 90%."
+
+The difference shows up when you compare a confident model to an unsure one.
+
+```plain text
+CASE 1 - model is confident ("the capital of France is ___")
+
+  Paris   ███████████████████████████  95%
+  Lyon    ▏                             1%
+  France  ▏                             1%
+  toast   ▏                           0.5%
+
+  top-k = 5   → keeps Paris, Lyon, France, toast, +1
+                lets four bad words into the room
+  top-p = 0.9 → keeps Paris, then stops. 95% is enough.
+
+
+CASE 2 - model is unsure ("my favourite colour is ___")
+
+  blue    ██████                       12%
+  green   █████                        10%
+  red     █████                         9%
+  purple  ████                          8%
+  ... 30 more all around 5%
+
+  top-k = 5   → keeps 5, cuts 30 perfectly good colours
+  top-p = 0.9 → keeps about 35, because nothing dominates
+```
+
+top-k is a fixed pool. top-p is a pool that grows and shrinks depending on how
+sure the model is. That is why top-p is the one most people use now, and top-k
+mostly shows up in older code.
+
+Advice from every documentation page I read: change one of these, not all
+three. Stacking temperature, top-k and top-p makes the result impossible to
+reason about. Pick temperature as your dial and leave the others alone until
+you have a reason.
+
+### What breaks: the output cap
+
+There is a setting for the maximum length of the reply, in tokens. It sounds
+boring. It has a sharp edge.
+
+The AcmeCloud bot has it set to 300 tokens. A customer asks something that
+needs a 500 token answer. They do not get a shorter answer. They get the first
+300 tokens of a 500 token answer, stopped mid-sentence, possibly mid-word.
+
+The cap is not a hint to be brief. It is a guillotine.
+
+If you want short answers, ask for them in the instructions. Use the cap as a
+safety net against runaway output, not as a style control.
+
+And check why the response ended. Every reply tells you: either the model
+finished its thought, or you cut it off. If you never read that field, you will
+ship truncated answers to real people and never find out. It is the most
+skipped line of code in this whole area.
+
+---
+
+## Why streaming feels faster than it is
+
+The AcmeCloud bot takes 8 seconds to write a full reply. There are two ways to
+hand it over.
+
+**Unstreamed:** the customer waits 8 seconds, then the whole reply appears at
+once.
+
+**Streamed:** words start appearing after about 0.4 seconds and trickle in
+until second 8.
+
+Both finish at second 8. The total work is identical. Nothing got faster. And
+streaming feels dramatically better anyway.
+
+Two numbers explain it. **Time to first token** is how long until something
+appears, so 0.4 seconds. **Total latency** is how long until it is done, so 8
+seconds. Streaming does nothing to the second number and collapses the first
+one, and people judge speed almost entirely on the first.
+
+There is a second benefit that gets less attention. The customer can bail. Two
+lines in they see it is the wrong answer and stop it, instead of waiting 8
+seconds to learn that.
+
+A restaurant version: unstreamed is the whole meal arriving after 40 minutes.
+Streamed is bread, then a starter, then the main. Same kitchen, same clock,
+completely different wait.
+
+### When not to stream
+
+The bot has a second, hidden job. It reads a ticket and returns a small piece
+of structured data for the database:
+
+```plain text
+{"category": "billing", "urgency": "high"}
+```
+
+Nobody reads that. It goes straight into storage. Streaming it is pointless,
+because half of it is not half an answer. `{"category": "bill` is garbage. You
+cannot store it, cannot check it, cannot use it.
+
+Streaming also makes retries messy. If an unstreamed reply comes back
+malformed, you throw it away and call again. With streaming you are already
+holding half of something and have to decide what to do with the pieces.
+
+| Who reads the output | Stream? |
+| --- | --- |
+| a person, watching it arrive | yes |
+| your own code | no |
+| a background job nobody is waiting on | no |
+| a person, but the output is one short line | barely worth it |
+
+---
+
+## Models that think before they answer
+
+Give the same question to two models. The standard one starts writing
+immediately, first word out in 0.3 seconds. The reasoning one sits quiet for 20
+seconds, then writes.
+
+It is not waiting on the network in those 20 seconds. It is writing tokens you
+never see. Working the problem, trying an approach, noticing it is wrong,
+backing up. Then it writes the real answer.
+
+On hard multi-step problems this is the difference between getting 30% right
+and 80% right. On "how do I reset my password" it is the difference between
+right and right.
+
+### Thinking is writing, and it has to be
+
+This is the part I found genuinely interesting, because it explains why
+reasoning models look the way they do.
+
+The model does a fixed amount of computation to produce one token. The same
+amount every time. It cannot decide to think harder on a difficult token.
+There is no inner loop, no pause to work something out. One pass in, one token
+out.
+
+So if a problem needs ten steps of work, and one token's worth of computation
+covers one step, the model needs ten tokens to get through it. There is no
+other route available.
+
+And everything it writes gets fed back in as input for the next token. So the
+scratch text it produces is text it can then read. The scratchpad is memory and
+extra computing power at the same time.
+
+You already know how this feels. Multiply 47 by 68 in your head and you will
+probably drop a digit. Do it on paper and you will get it. Same brain. The
+paper is not clever. It just gives you somewhere to put step one while you do
+step two.
+
+<Flow
+  title="Where the extra tokens go"
+  rows={[
+    {
+      lead: "standard",
+      nodes: [{ label: "question" }, { label: "answer" }],
+      note: "one shot, no room to work",
+    },
+    {
+      lead: "reasoning",
+      nodes: [
+        { label: "question" },
+        { label: "think", sub: "invisible" },
+        { label: "think", sub: "invisible" },
+        { label: "check + backtrack", muted: true },
+        { label: "answer" },
+      ],
+      note: "each step is read back in by the next",
+    },
+  ]}
+  caption="The scratch work is the computation. There is no other place for it to happen."
+/>
+
+The backtracking is the real gain. A standard model that starts down a wrong
+path is stuck with it, because it has already committed those words and the
+next word has to follow from them. A reasoning model has been trained to write
+"wait, that's wrong" and turn around.
+
+Nobody wrote those steps down, by the way. The behaviour came out of training
+where the model attempted thousands of problems and only the final answer was
+checked. Double-checking led to more right answers, so double-checking
+survived. It is a habit that grew because it scored well. The training stages
+that produce this are worth a post of their own, and I took
+[notes on Karpathy's walk through them](/writing/karpathy-llm-deep-dive-notes).
+
+Two footnotes. What you see on screen labelled as thinking is usually a
+cleaned-up summary, not the raw trace. And you get one dial, the **thinking
+budget**, which is how many invisible tokens it is allowed to spend. Small for
+easy work, large for hard. Bigger budget, better answers on hard problems, more
+money and more waiting.
+
+### What breaks: using it for everything
+
+The AcmeCloud bot gets two kinds of ticket. "How do I reset my password."
+And "I was charged twice in March, one was refunded, then I upgraded
+mid-cycle, what do I actually owe?"
+
+Send both to the reasoning model and the first one costs you three ways. You
+burn thousands of invisible tokens. You add 20 seconds to a question that
+needed two. And you pay for those invisible tokens, because they are output
+tokens like any other, even though nobody reads them.
+
+There is also a decision about what to do with the thinking afterwards. It is
+text, so it lives in the context window, so it costs money on every later turn.
+Mostly you throw it away and keep the answer. But if the follow-up question
+digs into the same problem, the thinking held work the answer never showed, and
+dropping it means paying to redo it. And if the model called a tool
+mid-thought, the thinking and the tool call are one connected chain, so
+stripping it out can get your request rejected outright.
+
+---
+
+## Screenshots cost more than you think
+
+AcmeCloud customers paste screenshots. Error dialogs, billing pages, broken
+invoices.
+
+The model does not see an image. The picture gets turned into tokens, the same
+currency as text, and dropped into the same sequence. There is one stream of
+tokens and some of them came from pixels.
+
+A 1000 by 1000 screenshot lands around 1,300 tokens. A large photo can pass
+2,500. One screenshot costs about as much as three pages of text.
+
+Audio works the same way, at very roughly 25 tokens per second. Ten minutes of
+a support call is around 15,000 tokens.
+
+### What breaks: small text disappears
+
+Images get resized down before they become tokens. There is a maximum size and
+anything bigger gets scaled to fit. A 3000 by 2000 screenshot of an error log
+becomes something like 1500 by 1000 first.
+
+Text that was 10 pixels tall is now 5 pixels tall. The letters are not there
+anymore.
+
+```plain text
+what you sent                what the model gets
+─────────────────            ───────────────────
+ERROR 0x8007045D             ERROR 0x800704SD   ← or 45B, or 4S0
+at line 4471                 at line 4471       ← or 4477
+                             text under ~10px after resize
+                             is a coin flip
+```
+
+The dangerous part is that it does not tell you. It will not say "too blurry
+to read." It produces a plausible error code that is wrong by one character,
+and the bot then answers confidently about a completely different problem.
+
+Four things help. Crop before sending, so you send the error dialog and not the
+whole 4K desktop. Split a long log into several images instead of one shrunk to
+death. For dense text, run OCR first (software that reads text out of a
+picture) and hand the model the extracted words instead. And ask the model to
+quote back what it read before acting on it, so you can catch the garbage.
+
+---
+
+## Why the bill looks strange
+
+Three numbers on the invoice.
+
+**Input tokens** are everything you sent. **Output tokens** are everything the
+model wrote, including the invisible thinking. **Cached tokens** are input you
+had already sent before, charged at a discount.
+
+Output typically costs around five times more than input. Same tokens, five
+times the price, and there is a real reason for it.
+
+Input goes through the model once, all together. All 10,000 tokens processed in
+parallel, one pass, hardware fully busy.
+
+Output cannot work that way. To write token two, the model must have already
+written token one. 500 output tokens means 500 separate passes, each one
+waiting for the last to finish.
+
+```plain text
+INPUT   10,000 tokens ──► one pass ──► done
+        all together, cheap per token
+
+OUTPUT  pass 1 → "You"
+        pass 2 → " owe"      each pass needs the
+        pass 3 → " ₹1"       previous one finished
+        ...
+        pass 500 → "."
+        500 passes for 500 tokens
+```
+
+Output is billed higher because it is serial, and because it occupies the
+machine the entire time it is running.
+
+### Not paying twice for the same words
+
+The AcmeCloud bot sends the same 12,000 tokens on every single call. System
+prompt, tool definitions, product docs. Identical every time. Processing them
+again is pure waste, because the model does the same arithmetic on the same
+text and gets the same result.
+
+So the provider keeps that processed state and reuses it. You pay a small fee
+to write it, then roughly 10% of the normal price on every later call that
+starts with the same text.
+
+```plain text
+NO CACHE
+call 1  [12,000 fixed ][  400 chat ]  ← 12,400 at full price
+call 2  [12,000 fixed ][  900 chat ]  ← 12,900 at full price
+call 3  [12,000 fixed ][1,400 chat ]  ← 13,400 at full price
+
+WITH CACHE
+call 1  [12,000 written to cache ][  400 ]  ← small write fee
+call 2  [12,000 at ~10%          ][  900 ]
+call 3  [12,000 at ~10%          ][1,400 ]
+```
+
+### What breaks: one wrong character at the top
+
+The cache matches from the start of your input, and only an exact match counts.
+Change one character near the beginning and everything after it misses.
+
+The AcmeCloud prompt started like this:
+
+```plain text
+"Today is 8 August 2026, 14:32. You are a help desk bot for AcmeCloud.
+ [12,000 tokens of product docs and tool definitions]"
+```
+
+The timestamp changes every minute. So the cache never matches, all 12,000
+tokens behind it get reprocessed at full price, and you sit there wondering why
+caching did nothing.
+
+The fix is to order everything by how often it changes. Never-changes at the
+top, changes-every-call at the bottom.
+
+```plain text
+BAD                          GOOD
+─────────────────────────    ─────────────────────────
+timestamp     ← changes      product docs   ← never changes
+product docs                 tool defs      ← never changes
+tool defs                    ───── cache ends here ─────
+chat history                 timestamp      ← changes
+                             chat history   ← grows
+```
+
+That one layout decision is worth 80 to 90% off the input bill on a chatty
+product.
+
+Two limits. Caches expire, typically after a few minutes of no use, so a bot
+with steady traffic keeps it warm all day while a bot used twice an hour pays
+the write fee over and over and may come out worse off. And the growing chat
+history at the bottom always misses, which is fine. The 12,000 fixed tokens in
+front of it still hit.
+
+---
+
+## What breaks when you talk to it from code
+
+Two words first. The **API** is the raw way to reach the model: you send a
+request over the internet, you get a reply. The **SDK** is a small library in
+your programming language that writes those requests for you. The API is the
+restaurant's kitchen window. The SDK is a waiter who knows the menu.
+
+### Being told no
+
+The bot goes viral. 500 customers hit it in one minute. The provider starts
+rejecting some calls with an error meaning "too many requests."
+
+They have the hardware. They would make more money serving you. They refuse
+anyway, because capacity is finite and shared. There is no elastic pool to
+scale into, since you cannot buy more graphics cards this afternoon. So the
+choice is either serve everyone slowly and let every customer's app degrade,
+or refuse some calls and protect the ones already running.
+
+They pick the second, and it is the right call for you too. A fast rejection is
+more useful than a slow success, because you can react to a rejection. A
+90 second response is just a broken app.
+
+Limits come in two shapes and you hit whichever binds first. A cap on requests
+per minute catches apps making many small calls, like the bot. A cap on tokens
+per minute catches apps making a few huge calls, like document processing.
+They apply per account rather than per app, so your bot and your side project
+share one budget. And they rise as you spend more, so limits stop being a
+problem well before real scale.
+
+### Retrying without making it worse
+
+You get rejected. The naive fix is to catch the error and immediately try
+again, in a loop, until it works.
+
+That adds load at the exact moment the provider has told you there is none
+spare. If a hundred customers all retry instantly, everyone hammers together
+and nobody gets through.
+
+The fix is to wait longer after each failure.
+
+```plain text
+try  →  fail  →  wait 1s
+try  →  fail  →  wait 2s
+try  →  fail  →  wait 4s
+try  →  fail  →  wait 8s
+try  →  give up
+```
+
+Plus one addition that looks silly and matters a lot. Add a random fraction to
+each wait, so 1.3s, 2.7s, 4.1s. Without it, everyone who failed at the same
+second retries at the same second, and you have rebuilt the stampede one level
+down. The randomness spreads the herd out.
+
+```python
+import random, time
+
+for attempt in range(5):
+    try:
+        return call_model()          # the actual request
+    except RateLimitError:
+        if attempt == 4:
+            raise                    # out of tries, fail loudly
+        wait = (2 ** attempt) + random.random()   # 1s, 2s, 4s... + jitter
+        time.sleep(wait)
+```
+
+The rejection often tells you how long to wait, in a field on the response. Use
+that when it is there and fall back to your own waiting when it isn't.
+
+And only retry the things worth retrying. Too many requests, server errors and
+timeouts are worth another go. A wrong API key or a malformed request is not.
+Retrying those just fails five times slower.
+
+### What breaks: the reply that vanishes
+
+The bot calls the model. The model runs, produces the answer, starts sending it
+back, and the network dies before it arrives. You got nothing. You have no idea
+whether it ran.
+
+If all it did was write text, you retry and you have wasted some money.
+
+But some calls do things. The AcmeCloud bot issues refunds. The network died
+after the refund went through and before you heard about it. You retry. You
+refund the customer twice.
+
+The core problem is that you cannot tell "it failed" apart from "it worked and
+the reply got lost." Both look identical from your side.
+
+**Idempotency** is the fix. The word means: doing it twice has the same effect
+as doing it once. You attach a unique ID that you make up to the request. The
+server remembers it. The second time it sees that ID it does not run anything,
+it hands back the result from the first run.
+
+```plain text
+call  →  key: abc-123  →  server: new. run it. refund issued.
+         ✗ network dies before reply arrives
+
+retry →  key: abc-123  →  server: seen this. don't run.
+                                   here's the saved result.
+         ✓ one refund, correct answer
+```
+
+```python
+# one key per operation, generated once and reused on every retry
+key = f"refund-{ticket_id}"     # NOT a fresh random id each attempt
+
+client.messages.create(
+    extra_headers={"Idempotency-Key": key},
+    ...
+)
+```
+
+The mistake to avoid is generating a new key on the retry. Then it is a
+different request as far as the server is concerned, and it runs again. The key
+has to identify the operation, not the attempt, so tie it to something stable
+like the ticket ID.
+
+| Operation | Needs a key? |
+| --- | --- |
+| answer a question | no, a repeat only costs money |
+| write to your database | yes |
+| charge or refund | yes, always |
+| send an email or message | yes |
+| read something | no |
+
+---
+
+Going back over all of it, almost everything here is one idea wearing different
+clothes.
+
+Tokens are the only currency. Your chat, the instructions the customer never
+sees, a pasted screenshot, ten minutes of a support call, and the model's
+private thinking all become the same kind of item in the same shared budget.
+The context window is how many fit. Sampling is how the next one gets chosen.
+Streaming is when you get to see them. Pricing is what they cost, and caching
+is not paying twice for the ones you already sent.
+
+The one thing I still find strange, and the one I would think about first on
+any new build, is that thinking and answering are the same act. The model has
+no way to work something out except by writing it down. Every trick in this
+post is a consequence of that.
