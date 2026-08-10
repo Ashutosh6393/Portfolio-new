@@ -1,0 +1,252 @@
+export const metadata = {
+  "date": "2026-08-10",
+  "summary": "Almost every model people call open source is not open source. Working out why sent me through licences, weights files, and what you are actually buying when you pay a company for a brain.",
+  "title": "Open source AI mostly isn't",
+  "readingTime": "9 min"
+}
+
+I wanted to build something small. A tool that reads incoming support emails,
+puts one of eight tags on each, and writes a one line summary.
+
+Before writing any code I had to answer what looked like an easy question. Which
+model should it use?
+
+That turned out to be several questions wearing one coat. Some models you rent
+by the request. Some you download and keep. The words people use to describe the
+difference are used wrongly almost everywhere, including by the companies
+handing the models out. Here is what I worked out.
+
+---
+
+## The thing I had backwards
+
+I thought a model was a program, and the weights were something stored inside
+it. Like an app with a settings file next to it.
+
+That is wrong, and it is worth fixing first, because everything else depends on
+it.
+
+**The weights are the model.** There is no program wrapped around them. Take the
+weights away and nothing is left.
+
+Two things are involved, and they are separate. The **weights** are a gigantic
+list of numbers, learned during training. The **runtime** is a small piece of
+software that does arithmetic with those numbers.
+
+Think of sheet music and a piano player. The sheet music is the weights. The
+player is the runtime. You download the sheet music once per piece. You install
+the player once, and it plays anything you hand it.
+
+<Flow
+  title="What happens when you run a model"
+  rows={[
+    {
+      nodes: [
+        { label: "weights file", sub: "billions of numbers" },
+        { label: "runtime", sub: "does the maths" },
+        { label: "words out" },
+      ],
+    },
+  ]}
+  caption="The file is inert. The runtime is what makes it speak."
+/>
+
+So when someone says they downloaded a model, what landed on their disk is one
+enormous file of numbers. It is not an .exe. You cannot double click it. It
+usually looks like one of these:
+
+| File type | What it is |
+| --- | --- |
+| `.safetensors` | Full precision numbers. Large. The standard format. |
+| `.gguf` | Squashed numbers, packed to run on an ordinary processor. |
+
+That squashing has a name worth knowing: **quantisation** (storing each number
+with less precision, so the file gets much smaller and the answers get a little
+worse). It is the reason a normal laptop can run a model at all.
+
+I ran one on mine. Eight gigabytes of memory, no graphics card, and a three
+billion number model answers at about reading speed. Slow, but it works,
+offline, with no bill.
+
+---
+
+## Three kinds of open
+
+Now the actual question. If the model is just a file, what does it mean for that
+file to be open?
+
+There are three answers, and they get treated as one:
+
+| | Weights public | Training data public | Free to use however |
+| --- | --- | --- | --- |
+| **Closed** | No | No | You rent access, that is all |
+| **Open weight** | Yes | No | Mostly, with conditions |
+| **Open source** | Yes | Yes | Yes |
+
+Closed is GPT, Claude, Gemini. Open weight is Llama, Qwen, Gemma, DeepSeek, and
+nearly everything else people download. Open source, in the sense the term has
+meant for thirty years, is a short list: OLMo, Pythia, BLOOM.
+
+Almost every model the internet calls open source is the middle row. Meta does
+not call Llama open source. Neither does the Open Source Initiative, which is
+the body that decides what the phrase means.
+
+The difference is the recipe. Open weight hands you the finished cake. Open
+source hands you the cake and the recipe and the shopping list, so you could
+bake it again yourself. Nobody hands over the training data, because the
+training data is the expensive part and some of it is legally awkward.
+
+---
+
+## What a licence can actually stop
+
+Llama's licence has conditions. The two that get quoted are these.
+
+You can use it commercially, but permission cuts off if your product passes 700
+million users a month. That clause is aimed at Google and Apple and nobody else.
+
+You are restricted in using it to train other models. The earlier version banned
+this outright. The later one loosened it but still makes you carry the Llama
+name.
+
+Then I noticed something that changed how I read all of this.
+
+**The file does not check the licence.** It does not phone home. It does not
+know who you are. Nothing inside those numbers will refuse to run because you
+skipped the terms. You could copy the file onto a USB stick and hand it to
+someone in the street.
+
+So the licence is not a lock. It is a piece of paper, and paper is enforced by
+taking someone to court.
+
+Which means it depends entirely on whether you can be sued.
+
+A funded startup has a bank account, a registered address, and investors who
+need the paperwork clean. Their lawyer reads that licence before a single line
+ships. Someone fine tuning a model on a laptop at home has no assets and no
+visibility, and suing them would cost Meta more than it could ever recover.
+
+**The licence is a leash on companies.** For everyone else it is closer to a
+strong suggestion. That is the honest version and most write ups skip it.
+
+---
+
+## Why the row you pick matters
+
+Say you go with an open weight model and run it on machines you control. What
+does that actually get you?
+
+Four things, and only one of them is about money.
+
+**Your data stays put.** Nothing gets posted to another company's servers. For
+support emails full of customer details, that one point can decide the whole
+choice on its own.
+
+**Nobody can retire it.** Hosted models get switched off. Version numbers get
+deprecated and your code stops working. A file on your disk keeps working
+forever.
+
+**Nobody can reprice you.** Your cost is electricity. It does not change because
+someone updated a pricing page.
+
+**You can change the model.** Fine tuning means feeding a model your own
+examples so it gets better at your specific job. You can only do that if you
+hold the weights. Renting does not allow it.
+
+---
+
+## The companies that rent you a brain
+
+The other route is to pay someone. Six names come up: OpenAI, Anthropic, Google,
+Cohere, Mistral, xAI.
+
+They are not six versions of the same company. They fall into two groups.
+
+OpenAI, Anthropic, Google and xAI sell access. The weights stay theirs. You send
+text to their servers and text comes back.
+
+Cohere and Mistral sell access too, but they will also let the model come to
+you. Mistral publishes open weights for some of its models. Cohere will deploy
+inside your own cloud account, or your own building.
+
+That second group exists because a bank cannot post customer records to someone
+else's servers, and also does not want to hire a machine learning team from
+scratch.
+
+| Provider | Model | Where it wins |
+| --- | --- | --- |
+| **OpenAI** | GPT | Widest tooling, most third party support |
+| **Anthropic** | Claude | Long documents, code, following instructions closely |
+| **Google** | Gemini | Very large inputs, cheap small models, video and audio |
+| **Cohere** | Command | Runs inside your own cloud, built around search |
+| **Mistral** | Mistral, Mixtral | European hosting, publishes some open weights |
+| **xAI** | Grok | Fast, live data from X, loosest content rules |
+
+---
+
+## What you actually buy from the second group
+
+This is the part I got wrong twice before it landed.
+
+If Cohere deploys a model inside your data centre, the machines are still yours.
+You still buy the graphics cards. You still keep them running at three in the
+morning. The work did not vanish. It moved.
+
+So what did they take off your plate?
+
+Not the machines. **The knowing.**
+
+Which model, at which size, squashed how much. Whether your version needs
+retuning. What to do when a new release arrives. Somebody else decides all of
+that and hands you a tested answer.
+
+And when it breaks, there is a contract, a phone number, and a company legally
+on the hook. That last part is most of what enterprise software costs anywhere.
+You are buying a name to write on the incident report.
+
+**Expertise, plus liability.** Not computing power. Computing power is the cheap
+part.
+
+---
+
+## Where this gets you into trouble
+
+Everything above has a failure mode, and the honest list is worth more than the
+enthusiastic one.
+
+**Open weight does not mean free.** The file is free. Running it is not. Somebody
+pays for the hardware, and if it is you, that bill arrives monthly whether or
+not anyone uses your tool.
+
+**A friendly licence can turn unfriendly.** Qwen ships under Apache 2.0 today.
+DeepSeek under MIT. Nothing forces the next version to keep those terms, and
+plenty of projects have tightened up after getting popular.
+
+**Fine tuning is a trap for small teams.** Being able to change the weights
+sounds great until you learn what it needs: a few thousand carefully labelled
+examples, someone who can judge whether the result got better, and the
+willingness to do it again on the next version. Most teams should adjust their
+instructions instead.
+
+**Renting means living on someone else's schedule.** Models get deprecated. I
+have watched working code break because a version number stopped existing.
+
+**Open weight models are usually behind.** The gap has narrowed a lot, but the
+strongest model available at any moment is normally a closed one. If your job
+genuinely needs the strongest, holding a file will not get you there.
+
+---
+
+Two things came out of this that I did not have going in.
+
+The first is that the model is a file. Once you see that, the licence questions
+get simpler and slightly sillier, because you are asking what a document can
+stop a copied file from doing.
+
+The second is that renting and owning are not a spectrum with cheap on one end.
+They trade different things. Renting costs money and gives up control. Holding
+the file costs work and gives up the frontier.
+
+Which leaves the question I started with still unanswered. If I hold the file,
+what does the tagger actually cost to run? I ran the numbers and they surprised
+me, so that is the next post.
