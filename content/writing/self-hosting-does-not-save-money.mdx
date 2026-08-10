@@ -1,0 +1,264 @@
+export const metadata = {
+  "date": "2026-08-10",
+  "summary": "I worked out what it costs to run an open weight model yourself instead of paying per request. The break-even sits at about 3.3 million emails a month, which means almost nobody should be doing it for the money.",
+  "title": "Self-hosting a model does not save money",
+  "readingTime": "10 min"
+}
+
+In the last post I worked out that a model is a file, and that you can either
+rent access to one or hold the file yourself. I left the obvious question
+hanging.
+
+I still want the same small tool. It reads incoming support emails, puts one of
+eight tags on each, and writes a one line summary. If I hold the file instead of
+paying per request, what does that cost?
+
+I assumed running it myself would be cheaper. Everyone says so. The arithmetic
+says otherwise, and the gap is not close.
+
+---
+
+## The four families you can download
+
+Start with what is actually available. Four families come up in every
+conversation, and people treat them as interchangeable. They are not.
+
+| Family | From | What it is good at | Licence |
+| --- | --- | --- | --- |
+| **Llama** | Meta | The default choice. Most tutorials, most add-ons | Open weight, 700M user clause |
+| **Qwen** | Alibaba | Best small models. Strong in many languages | Apache 2.0, genuinely permissive |
+| **DeepSeek** | DeepSeek | Reasoning and maths. Mostly too large for a laptop | MIT, very permissive |
+| **Gemma** | Google | Small and tidy. Sibling of Gemini | Open weight, own terms |
+
+One thing there surprised me. **Qwen and DeepSeek come with friendlier licences
+than Llama.** The American release has more conditions attached than the two
+Chinese ones. That is the opposite of what most people assume.
+
+Each family ships a ladder of sizes. Qwen alone runs at 0.5, 1.5, 3, 7, 14, 32
+and 72 billion. Same team, same training, different scales. The number counts how
+many learned values are inside, and it decides both how much memory you need and
+how good the answers are.
+
+---
+
+## The clever trick that does nothing for you
+
+DeepSeek does something the other three mostly do not. Its large models use
+**mixture of experts** (the model is split into many specialist sections, and
+only a few of them wake up for any given word).
+
+So a DeepSeek model can hold 671 billion values but only use about 37 billion to
+produce each word. That sounds like it should make it cheap to run.
+
+It does, for exactly one kind of person, and it is not you or me.
+
+A model asks your machine for two different things. It needs **memory** to hold
+the values, all of them, all the time. It needs **computing power** to do the
+multiplying, once per word produced.
+
+Mixture of experts only shrinks the second one. The sleeping sections still have
+to sit in memory, because the model cannot know in advance which one the next
+word will need.
+
+| | Ordinary model | Mixture of experts |
+| --- | --- | --- |
+| Must fit in memory | 671 billion | 671 billion |
+| Work done per word | 671 billion | about 37 billion |
+
+Which means it is cheap to run for whoever already owns enough memory to load it,
+and completely out of reach for everyone else. My laptop has eight gigabytes.
+That model needs something like forty. The clever trick is a gift to the company
+with the data centre.
+
+I keep seeing this filed under "cheaper" with no mention of who it is cheaper
+for. That missing half is the whole point.
+
+---
+
+## Whose machine, and who owns the file
+
+Here is where my mental model broke and had to be rebuilt.
+
+I had two boxes in my head. Closed models live on someone else's servers. Open
+models live on mine. Clean, and wrong.
+
+Hugging Face is what broke it. People describe it as GitHub for models, which
+covers two thirds of it. It is three things stacked up:
+
+- The Hub, where the weight files live. Free to download, hundreds of thousands
+  of them.
+- The libraries, which is the code you use to load and run one.
+- Paid hosting, where they run the machine for you and hand you an address to
+  send requests to.
+
+That third one is the interesting part. If Hugging Face will rent me a machine
+with Qwen already loaded on it, then an open weight model just arrived on
+somebody else's servers, billed by the request. Which was supposed to be the
+closed column.
+
+So the real picture is a grid with two independent questions in it:
+
+| | Someone else's machine | Your machine |
+| --- | --- | --- |
+| **Closed weights** | GPT, Claude, Gemini | Not possible |
+| **Open weights** | Hugging Face, Together, Groq, Fireworks | Ollama, vLLM |
+
+Three of those four boxes are real options. **Who owns the file and whose
+machine runs it are separate questions.** Closed weights force both answers at
+once. Open weights let you pick them independently, which is most of why they
+matter.
+
+---
+
+## One key for everything
+
+There is one more layer above all of that, and it is the one I would reach for
+first now.
+
+OpenRouter sits in front of every provider in both rows. One key, one address,
+and around three hundred models behind it. You change a single piece of text in
+your code to swap Claude for Qwen.
+
+For my tagger that means I can test the 3 billion, the 7 billion and the 72
+billion against the same emails by editing one line each time. No accounts, no
+downloads, no machines to rent.
+
+<Flow
+  title="Where the request goes"
+  rows={[
+    {
+      lead: "direct",
+      nodes: [{ label: "my app" }, { label: "provider" }, { label: "model" }],
+    },
+    {
+      lead: "via OpenRouter",
+      nodes: [
+        { label: "my app" },
+        { label: "OpenRouter", sub: "picks a provider" },
+        { label: "provider" },
+        { label: "model" },
+      ],
+      note: "one extra hop",
+    },
+  ]}
+  caption="Convenience costs a leg on every request, and a company in the middle."
+/>
+
+Three prices for that convenience. The first is money: roughly five per cent on
+top of what the provider charges.
+
+The second is trust. Every support email now passes through a company I have no
+contract with. Somebody whose job is data protection will stop that, correctly.
+
+The third I did not see coming. OpenRouter sends your request to whichever
+provider is up, and different providers serve the same model squashed to
+different degrees. So the same model name can quietly give you slightly
+different quality on different days.
+
+For trying things out, worth it. For handling customer data in production, read
+the terms properly first.
+
+---
+
+## The arithmetic
+
+Now the number I actually came for.
+
+The cheapest usable rented graphics card is about fifty cents an hour. The
+important part: it bills by the hour, not by the request. Nobody has to send you
+anything for that meter to run.
+
+```plain text
+$0.50/hr x 24 hours x 30 days  =  $360/month
+```
+
+That is the floor. It is what you pay before a single email arrives.
+
+A small hosted model costs roughly twenty cents per million words of input. Each
+support email is about 500 units in and 50 out, so call it 550.
+
+So how much traffic do you need before owning the machine beats paying per
+request?
+
+```plain text
+$360 / $0.20 per million       =  1,800 million units
+1,800,000,000 / 550 per email  =  about 3.3 million emails per month
+```
+
+That is roughly **4,500 emails every hour, all day, all month, without a break.**
+A large company's entire support inbox running flat out.
+
+I had this the wrong way round before I did the division. For almost every
+project, paying per request is the cheaper option, and the gap is enormous rather
+than marginal.
+
+And the number above is generous. It assumes steady traffic. Real support email
+arrives in bursts, heavy on Monday morning and quiet at 3am, and you pay for the
+quiet hours at exactly the same rate.
+
+It also leaves out the part that actually costs the most. Somebody has to know
+why the machine ran out of memory overnight. That is a specialist, not a general
+web developer, and their salary dwarfs the $360.
+
+---
+
+## So why does anyone do it
+
+Serious companies self-host all the time. Given the arithmetic, that looked
+irrational to me until I listed the actual reasons. None of them is cost.
+
+**The data is not allowed to leave.** Medical records, legal files, defence work.
+That is a rule someone else wrote, not a preference you can argue with. This one
+reason accounts for most self-hosting that happens.
+
+**Nobody can switch it off.** Hosted models get retired. A file on your disk
+works in five years.
+
+**You can change the weights.** Fine tuning needs the file in your hands.
+
+**No queues and no limits.** Your machine, your traffic, nobody throttling you at
+the busy moment.
+
+**It works with no internet.** Ships, factories, rooms with no network by design.
+
+The honest summary is that self-hosting buys control and pays for it in money and
+staff time. The story where it saves money is mostly repeated by people who never
+divided $360 by anything.
+
+---
+
+## Where this gets you into trouble
+
+**The small model might be wrong more often, and you will not notice.** Cheaper
+is easy to measure. Worse is not. A tagger that is wrong one time in twelve looks
+completely fine in a demo.
+
+**Rented machines are not the only price.** Storage, network traffic, a second
+machine for when the first one dies, and somebody on call.
+
+**Squashing a model changes it.** Quantisation is what lets my laptop run
+anything at all, and it does make answers worse. Usually a little. Sometimes on
+exactly the cases you care about, and you only find that out by testing.
+
+**Prices move fast.** Every number in this post has a shelf life measured in
+months. The shape of the arithmetic will outlast the figures, so redo the
+division with today's prices rather than trusting mine.
+
+**Free at small scale is a trap.** Running a model on your own laptop costs
+nothing and proves nothing about running it for a thousand users at once. Those
+are different problems with different tools.
+
+---
+
+Two things stuck with me.
+
+The first is that "run it yourself and save money" is close to backwards. You run
+it yourself when sending the data out is not permitted, or when you need to
+change the model, and you pay for that in cash and headcount.
+
+The second is that every question in this post came back to the same missing
+piece. Is the small model actually good enough? I have been comparing prices for
+two posts without any way to answer that.
+
+The answer is not a leaderboard. It is a hundred of my own emails, tagged by
+hand, with the answers I trust. That is the next post.
