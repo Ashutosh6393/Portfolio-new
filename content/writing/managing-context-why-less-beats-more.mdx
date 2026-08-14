@@ -1,0 +1,434 @@
+export const metadata = {
+  "date": "2026-08-13",
+  "summary": "Feeding an AI model more information usually makes it worse, not better. Here is why that happens, the five standard fixes, and the way every single one of them fails without telling you.",
+  "title": "Managing context: why less beats more",
+  "readingTime": "16 min"
+}
+
+There is a rule of thumb about AI models that sounds obviously true. The more
+you tell it, the better it does. Give it every example, every rule, every note
+you have, and it will have everything it needs.
+
+It is wrong. Past a point, adding more text makes the answers worse.
+
+I want to show you why that happens, what people do about it, and the thing
+nobody mentions: every single fix breaks in the same way, and none of them tell
+you when they have broken.
+
+One example runs through the whole post. I have a small program that reads
+support emails and puts a label on each one. Refunds, billing, delivery, that
+sort of thing. Eight labels. I will call it the tagger.
+
+---
+
+## More is not better
+
+Start with the thing that surprised me.
+
+I gave the tagger five example emails, each with the correct label attached.
+Here is a refund email, it gets the refunds label. Here is a billing email, it
+gets the billing label. The model reads those examples and copies the pattern.
+
+It worked well. So I gave it fifty examples instead of five, because more
+examples should mean a better copy of the pattern.
+
+It got worse.
+
+The reason sits in how these models read. When the model is working on a word,
+it spreads its attention across everything you gave it. Not a full share to
+each piece. **A fixed total, split up.**
+
+Think of a teacher with one hour. Five students, and each one gets twelve
+minutes. Fifty students, and each one gets seventy seconds. Same teacher, same
+effort. The attention per student collapsed.
+
+So with fifty examples, each example gets a thinner slice than it did with
+five. Nothing broke. The signal from any one example just got weaker, because
+forty-five more are shouting over it.
+
+### The middle is the weak spot
+
+The thinning is not even. Some positions survive it much better than others.
+
+Models are trained on mountains of text where the beginning sets up the task
+and the end is the bit being continued right now. Those two positions matter,
+so the model learned to weight them.
+
+The consequence: **the start of your input and the end of your input hold up.
+The middle gets washed out.** People call this "lost in the middle."
+
+If you have ever been told to put the important instruction at the top or the
+bottom of a prompt, that is why. It is not superstition.
+
+### Extra text is not neutral
+
+Weaker signal is only half the problem. The other half is worse.
+
+Every extra piece of text is another thing the model can lean on, and some of
+those things are wrong for the question in front of it.
+
+A refund email arrives. Sitting in my fifty examples is a billing email that
+looks a lot like it. Similar words, similar tone, different label. The model
+has no way to know which of the fifty is the one that matters. It sees text,
+and text that looks similar pulls hard.
+
+So there are two separate forces, and it took me a while to stop mixing them up.
+
+| Force | What it does | More examples means |
+| --- | --- | --- |
+| Coverage | Do I have an example of the label I need? | Better, up to a point |
+| Interference | Do I have examples that look right but aren't? | Worse, forever |
+
+Coverage is why five examples is not enough. But coverage runs out. Once I have
+one clean example of each of my eight labels, the eleventh billing example
+teaches nothing new. It only adds one more thing competing for attention.
+
+Here is the test that made it click. Two versions. Version A has one example per
+label, so eight examples. Version B has those same eight, plus forty-two more
+billing examples. Nothing new is taught by those forty-two. Same label, same
+kind of email.
+
+A refund email arrives. Version A gets it right more often. Version B added zero
+information and forty-two units of pull toward the wrong answer.
+
+**Less context wins when the extra context is repetitive or merely similar.** Not
+because the model is lazy. Because irrelevant text competes.
+
+---
+
+## Instructions rot where they sit
+
+Everything above was about what you put in one request. This next one is about
+what happens over a long conversation, and it is sneakier.
+
+When you chat with a model, the whole history goes back in every time. Turn
+forty does not send just turn forty. It sends turns one through forty. The input
+grows on its own, whether you want it to or not.
+
+Say at turn three I tell the tagger a rule. Anything mentioning a chargeback
+gets the billing label, never refunds. It follows the rule. At turn five it is
+still following the rule.
+
+At turn forty, a chargeback email comes in and gets labelled refunds.
+
+The rule did not disappear. It is still there, word for word, in the input.
+
+Work out where it is sitting, though. At turn three, that rule was near the
+start of a short conversation. Strong position. By turn forty, the conversation
+has grown around it, and turn three is now buried in the middle of a very long
+input.
+
+**The instruction did not get old. It migrated.** Same words, worse seat.
+
+That is context rot, and two things follow from it that are worth holding on to.
+
+It gets worse with **length**, not time. A forty turn conversation crammed into
+ten minutes rots exactly as much as one spread over three days.
+
+And repeating the rule at turn thirty-nine fixes it immediately. Not because the
+model remembered. Because you moved the rule back to the end, where attention
+still lands.
+
+That last point is the reason every fix below works.
+
+---
+
+## Fix one: send only what matters
+
+My tagger has a guide. Eight labels, and for each one a paragraph explaining the
+edge cases. The chargeback rule lives in there. About four thousand words in
+total.
+
+The lazy option is to paste all four thousand words into every request. But an
+email is about one thing. A refund email needs the refunds paragraph, maybe one
+neighbour, and nothing else. The other six paragraphs are the forty-two billing
+examples all over again.
+
+So do not send them. Before the model sees anything, ordinary code looks at the
+email, picks the paragraphs that match, and puts only those in the request. The
+model never learns the other six existed.
+
+The crudest version that works is keyword matching. The email says "refund" or
+"chargeback" or "money back", so pull the refunds paragraph. Real systems use
+something smarter that matches on meaning rather than exact words, but the shape
+is identical. **Search first, then ask the model.** Five hundred words instead of
+four thousand, and all five hundred are on topic.
+
+### Where it breaks
+
+An angry customer writes: "This is the third time I've been charged and nobody
+has fixed it."
+
+No "refund". No "chargeback". No "money back". The keyword search finds nothing
+and hands back an empty guide.
+
+Now compare the two failures side by side, because the difference is the whole
+point.
+
+Paste everything, and the chargeback rule is present but weak. It is buried in
+the middle, competing, easy to miss. Odds of the right answer: poor, but not
+zero.
+
+Send only what matters, and the chargeback rule is **not there at all**. Odds:
+zero. The model cannot follow a rule it never saw.
+
+So this fix does not just shift the failure, it sharpens it. Pasting everything
+degrades gently. Retrieval is fine, fine, fine, then falls off a cliff. And it
+falls quietly. The model does not raise a hand and say the guide looks empty. It
+hands you a confident label that happens to be wrong.
+
+You can soften this by falling back to the full guide when the search comes up
+empty. That helps. It does not remove the problem, because now you need to spot
+the case where the search returned one weak match instead of none, which is its
+own mess.
+
+**The trade: sharper attention, bought with a hard dependency on whatever picks
+the paragraphs.**
+
+---
+
+## Fix two: squash the old stuff
+
+Retrieval does not help with the forty turn conversation. The bloat there is not
+a document you can search. It is the conversation's own history.
+
+Compaction's move is simple. Replace the old turns with a summary of them. Turns
+one to thirty become a paragraph. Turns thirty-one to forty stay as they are.
+The input shrinks, and the recent stuff keeps its good seat at the end.
+
+### Where it breaks
+
+Something has to write that summary, and something has to decide what is worth
+keeping.
+
+My chargeback rule was one line, said once, at turn three, never mentioned
+again. Thirty turns of history, and most of them are routine. Email came in,
+label assigned, done.
+
+A summariser trying to capture the gist of thirty turns drops that line. It is
+not the gist. It came up once.
+
+And here is the part that makes this worse than rot. The original thirty turns
+get thrown away. The rule is now **gone from the input entirely**. Not weak. Not
+buried. Deleted.
+
+Rot is recoverable, because the words are still sitting there and repeating them
+brings them back. Compaction is permanent. You cannot pull a rule out of a
+summary that did not keep it.
+
+The session carries on. The tagger carries on. It just quietly stops following a
+rule that nobody told it to forget.
+
+The fix for this one is a habit, not a technique. **Do not let a rule live only
+in chat history.** Put it in the system prompt, or in a file the model re-reads,
+somewhere no summariser will ever touch it.
+
+---
+
+## Fix three: give each job its own worker
+
+New requirement. The tagger should now read an email, put a label on it, and
+write a one line summary of what the customer wants.
+
+The obvious build is one request that does both. Which means the request needs
+the label guide and the summary style rules, both in the input, both competing
+for the same fixed attention.
+
+Sub-agents split that up. Two separate requests. The labeller gets the label
+guide and nothing else. The summariser gets the style rules and nothing else.
+Neither one sees the other's instructions.
+
+The first win is obvious. The labeller stops competing with rules about tone and
+length that have nothing to do with labelling.
+
+The second win is bigger and less obvious. **Each sub-agent has no history.**
+Every call is turn one. There is no middle for anything to fall into, because
+the input never grows. Rot cannot happen here. You get a hard ceiling on input
+size that does not creep upward over a session.
+
+### Where it breaks
+
+The wall works in both directions.
+
+The labeller decides refunds. The summariser writes its line. They ran
+separately, so **the summariser has no idea a label was chosen.** The code that
+called both has the two answers, but only after both have finished.
+
+So you can end up with a label saying refunds and a summary saying the customer
+is asking about delivery times. Nothing errors. Two confident answers that
+contradict each other.
+
+The design rule falls out of that. Split work that is genuinely independent. Do
+not split work where one half needs the other half's answer. If you truly need
+it, run them in sequence instead, feeding the label into the summariser's
+request. Now they agree, but you have two waits instead of one, and you have let
+context back in.
+
+**Isolation buys clean attention and costs coordination.** Every time.
+
+---
+
+## Fix four: let the model open the box itself
+
+Back to the four thousand word guide. There is a version of "send only what
+matters" where the model does the picking instead of the code.
+
+Instead of the full text, the request gets a menu:
+
+```plain text
+refunds   - money back, chargebacks, duplicate charges
+billing   - invoices, plan changes, card failures
+delivery  - shipping, tracking, late orders
+...
+```
+
+Eight lines, maybe sixty words. The model reads the email, reads the menu, and
+says "open refunds". Then a second request goes out with that paragraph included,
+and the model does the actual labelling.
+
+<Flow
+  title="Two calls instead of one"
+  rows={[
+    {
+      lead: "call 1",
+      nodes: [
+        { label: "email" },
+        { label: "menu", sub: "60 words" },
+        { label: "\"open refunds\"" },
+      ],
+      note: "model chooses",
+    },
+    {
+      lead: "call 2",
+      nodes: [
+        { label: "email" },
+        { label: "menu" },
+        { label: "refunds text", sub: "500 words" },
+        { label: "label" },
+      ],
+      note: "model answers",
+    },
+  ]}
+  caption="The second call carries everything from the first, plus the paragraph it asked for."
+/>
+
+The point of that diagram is the second row. The model does not get a fresh
+start. Call two is call one plus the fetched paragraph.
+
+Now the good bit. Remember the email that broke keyword search? "Charged three
+times and nobody has fixed it." Handed a menu, the model gets it right. It knows
+being charged three times means duplicate charges, and duplicate charges are a
+refunds matter. That is a step of reasoning, not a word match. The cliff from fix
+one is gone.
+
+### Where it breaks
+
+Two places.
+
+The first is in that diagram. You did not avoid the context, you **delayed** it.
+Open one paragraph and you win. Open six and you have paid for two requests, two
+waits and two bills to arrive exactly where you started.
+
+The second is the menu. Sixty words, written by a person, once, and then never
+checked again. If the billing line says "invoices, plan changes" and the
+chargeback rule is actually buried inside the billing paragraph, the model will
+never open it. It has no reason to.
+
+The weak point moved. It did not go away.
+
+---
+
+## Fix five: pay once for the parts that never change
+
+This one is a different animal. Everything above shrinks the input. Caching does
+not shrink anything. It makes the same input cheaper.
+
+Without it, every request is processed from scratch. The model reads all four
+thousand words of the guide, does the attention work, then answers. Next email,
+same four thousand words, same work, again. A thousand emails a day is a thousand
+repeats of identical work.
+
+The guide does not change. So why redo it?
+
+Caching stores the processed form of that block. On the next request, if the
+input **starts with the exact same text**, the model reuses the stored work and
+skips ahead.
+
+That phrase, starts with, is the whole constraint. The cache matches from
+character one and stops at the first difference.
+
+Which gives you one rule and it is not negotiable. **Stable text first, changing
+text last.**
+
+| Layout | Cache hit? | Why |
+| --- | --- | --- |
+| Guide, then email | Yes | The guide is identical every time |
+| Email, then guide | Never | It differs at character one |
+
+---
+
+## When the fixes fight each other
+
+Put fix five next to the rest and the problem shows up straight away.
+
+Retrieval swaps in different paragraphs per email. Compaction rewrites the
+history every time it runs. Progressive disclosure changes the input between
+call one and call two.
+
+All three change the input. Caching wants the input to stop changing.
+
+You cannot have both in full. What you can do is put the stable part first,
+since the cache reuses everything up to the first difference:
+
+```plain text
+system prompt      <- identical every time    -> cached
+retrieved guide    <- varies by email         -> reprocessed
+the email itself   <- varies always           -> reprocessed
+```
+
+Read that carefully, because I got it backwards the first time. You are not
+caching most of the input. You are caching **the system prompt and nothing
+else.** The first difference lands in the retrieved guide, and everything after
+a difference gets reprocessed too. The guide and the email are paid for on every
+single call.
+
+There are two ways out and neither is clean.
+
+Paste the whole guide in a fixed order right after the system prompt. Now the
+entire guide caches and your calls get cheap. You also just traded away fix one
+and went back to diluted attention.
+
+Or group the variety. If most emails pull the same two or three sets of
+paragraphs, you end up with a handful of common openings instead of hundreds.
+Partial hits rather than none.
+
+That is the honest state of it. Retrieval says vary the middle. Caching says
+never vary anything. You get a cached head and a changing tail, and that is the
+deal.
+
+---
+
+## The thing all five have in common
+
+Line the failures up.
+
+| Fix | Who decides what the model sees | How it fails |
+| --- | --- | --- |
+| Retrieval | The search code | Returns nothing, model guesses |
+| Compaction | The summariser | Drops a rule, permanently |
+| Sub-agents | The parent code | Two answers that contradict |
+| Progressive disclosure | The menu text | Model never opens the right box |
+| Caching | The prompt layout | Silently no hits, just a bigger bill |
+
+Every fix works by **moving a decision away from the model**. Something else now
+chooses what the model gets to see. That is the source of the benefit, and it is
+also the entire risk.
+
+And in every row, when that something gets it wrong, nothing errors. No warning,
+no flag, no retry. You get a confident answer built on the wrong input, and it
+looks exactly like a correct one.
+
+So if you build any of this, the thing worth instrumenting is not the model. It
+is the picker, the summariser, the parent and the menu. Those four are where your
+answers actually get decided, and they are the parts that will never tell you
+they went wrong.
