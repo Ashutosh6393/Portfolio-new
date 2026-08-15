@@ -1,0 +1,548 @@
+export const metadata = {
+  "date": "2026-08-16",
+  "summary": "A map of the whole system: why the obvious fixes fail, why RAG is two pipelines rather than one, the eight places a wrong answer comes from, and when not to build it at all.",
+  "title": "Everyone's building RAG",
+  "readingTime": "20 min"
+}
+
+I have forty-odd posts on this site, a pile of specs, and a scanned PDF or two
+sitting in a folder. None of it is in any model's training data. I wanted to ask
+questions about it and get answers that were actually about my writing, not
+about writing in general.
+
+That is the RAG problem, stated small. This post is the overview: what the
+system is, what the parts do, and where it breaks. Each part deserves its own
+post and will get one. This is the map, not the territory.
+
+---
+
+## The problem
+
+Ask a model what I wrote about agent memory. It has never seen the post. It
+answers anyway, confidently, in complete sentences, and every specific in that
+answer is invented.
+
+The interesting part is the comparison. A search engine that has never indexed
+my site returns zero results. It comes back empty and says so. The model
+produces a paragraph. Same missing information, two completely different
+behaviours.
+
+The model is not malfunctioning. It was trained to produce likely text. `"In his
+post on agent memory, Ashutosh argues that..."` is an extremely likely sentence.
+So it gets produced.
+
+The reason it cannot do better is worth being precise about, because it explains
+every design decision downstream. Training does not store documents. It adjusts
+weights until the model's output resembles the text it saw. The documents are
+gone. What survives is a habit of writing plausibly about the shapes those
+documents had.
+
+So my post is not "in the weights" in any retrievable sense. What is in there is
+the average shape of a blog post about agent memory, assembled from thousands of
+real ones, none of them mine. That is why the answer sounds right and fails on
+every detail I actually cared about.
+
+A search engine can return nothing because it has documents to point at. A model
+has no documents, so it has no way to point at nothing.
+
+---
+
+## Three fixes that don't work
+
+Before reaching for RAG it is worth doing the obvious things and watching them
+fail, because two of them are correct in situations you will actually meet.
+
+### Paste everything into the prompt
+
+Send all forty posts with every question. This works. It is also the right
+answer more often than people admit.
+
+It stops working for four reasons, in increasing order of severity:
+
+- **Cost.** Every question pays for every post, forever.
+- **Latency.** The model reads all of it before producing a token.
+- **Context rot.** The relevant paragraph is buried in fifty thousand words of
+  irrelevant ones, and attention is finite. Accuracy drops even when the answer
+  is present.
+- **The ceiling.** Forty posts fit. Four thousand documents do not. Every model
+  has a hard limit.
+
+The first three make it wasteful. The fourth makes it impossible.
+
+### Fine-tune on the documents
+
+Train the model on my posts so it knows my content. This is the fix that sounds
+most correct and is most wrong.
+
+Fine-tuning is more training, and training produces weights. Weights are still a
+habit, not a store. There is still nothing to point at, so there is still no way
+to come back empty.
+
+What fine-tuning genuinely does well is style and format. Train on my posts and
+the model learns my sentence rhythm, my section breaks, my habit of short
+paragraphs. Then ask it for a fact from post seventeen and you get a
+confidently wrong paragraph in my own voice, which is strictly worse than a
+confidently wrong paragraph in a stranger's.
+
+There is a practical problem on top of the conceptual one. Publish a new post
+and the knowledge has to be baked in again. Adding a document to a store is one
+insert. Adding a document to a set of weights is a training run.
+
+Do not argue against fine-tuning on cost. A small adapter fine-tune is cheap now
+and getting cheaper. Argue against it on purpose. It changes how the model
+writes, not what it can look up.
+
+### Just search
+
+Put the posts behind a search box. Type "agent memory", get a list of links,
+click one, read it.
+
+This gets the thing the other two could not: a real store, real documents, and
+an honest empty result when there is nothing there.
+
+What it does not do is answer. It hands over ten links and leaves the reading,
+comparing and summarising to me. Ask "what have I said about memory across
+everything I've written" and search returns five links, not a response.
+
+Each of the three has exactly one half of what I want:
+
+| Approach | Real store | Produces an answer |
+| --- | --- | --- |
+| Paste everything | no | yes |
+| Fine-tune | no | yes |
+| Search | yes | no |
+
+---
+
+## What RAG actually is
+
+Search finds the documents. The model reads them and answers.
+
+That is the entire idea. Retrieval, then generation. Look it up, then respond.
+
+The open-book exam is the right comparison and it holds up under pressure. A
+closed-book student writes something plausible from memory. An open-book student
+finds the page and then writes the answer in their own words. Same student, same
+brain, same ability. The book is the only difference.
+
+One thing to be clear about, because a lot of writing on this is vague: the
+model is not retrained, not adapted, not modified in any way. It is the same
+model that hallucinated in the first section. The documents arrive in the
+prompt, fresh, every single time. Nothing persists in the model between
+questions.
+
+---
+
+## Two pipelines, not one
+
+Almost every RAG diagram draws one long arrow from documents to answer. That
+arrow is wrong, and the confusion it causes shows up later as bugs you cannot
+locate.
+
+The store gets built on Tuesday. Someone asks a question on Friday. The store is
+not being built at the moment the question arrives. It has been sitting there
+for three days.
+
+So there are two pipelines running on completely different clocks.
+
+<Flow
+  title="Two pipelines"
+  rows={[
+    {
+      lead: "ahead of time",
+      nodes: [
+        { label: "documents" },
+        { label: "parse + clean" },
+        { label: "chunk" },
+        { label: "embed" },
+        { label: "store" },
+      ],
+      note: "once, then on every publish",
+    },
+    {
+      lead: "per question",
+      nodes: [
+        { label: "question" },
+        { label: "embed" },
+        { label: "retrieve" },
+        { label: "pack prompt" },
+        { label: "generate" },
+      ],
+      note: "every time, someone is waiting",
+    },
+  ]}
+  caption="Different clocks. The top row can take an hour. The bottom row has about a second."
+/>
+
+The top pipeline runs when nobody is asking anything. It can be slow. It can be
+expensive. It can be rerun overnight when you change your mind about chunk size.
+
+The bottom pipeline runs while someone watches a spinner. Every millisecond in
+it is a millisecond of somebody's attention.
+
+There is exactly one step that appears in both, and it is the hinge the whole
+system turns on. Documents become vectors ahead of time. The question is also
+text, so it also has to become a vector before it can be compared to anything.
+Same operation, both sides, wildly different volumes: forty posts once, one
+short question every time.
+
+That shared step carries a constraint that bites people in production. Both
+sides must use the **same embedding model**. Change it on one side and every
+distance you compute is meaningless. Change it on the ingestion side and you
+have to re-embed the entire corpus.
+
+---
+
+## Pipeline one: building the store
+
+Four steps. Each one is a post of its own, so this is the one-paragraph version
+of each.
+
+### Ingestion
+
+Get from a file to plain text. This is the least glamorous step and the most
+common root cause.
+
+A scanned PDF needs OCR, and OCR output has errors you will not notice until an
+answer is wrong. A text PDF needs extraction, and extraction produces reading
+order that is frequently wrong: headers, footers and page numbers land in the
+middle of sentences. My MDX posts need the `export const metadata` block and the
+JSX stripped, or `<Flow>` ends up in the corpus as content.
+
+Then cleaning. Drop the boilerplate, fix the encoding, keep what a human would
+call the words.
+
+Bad ingestion is invisible. Nothing errors. The store fills up. Answers are just
+quietly worse, and you spend a week tuning the retriever.
+
+### Chunking
+
+Cut the clean text into pieces. The reason is easiest to see with a specific
+question.
+
+My agent memory post is two thousand words. One paragraph in it covers sliding
+windows. Somebody asks what a sliding window is. If the store holds the post as
+one unit, the model receives two thousand words to answer a question about
+fifty of them. That is the same cost, latency and context rot problem from
+section two, reintroduced at a smaller scale.
+
+Store the paragraph instead and the model sees fifty relevant words. Sharper,
+cheaper and faster at the same time.
+
+The cost of cutting is that cuts land in bad places. Half a table in one chunk
+and half in another, and neither half means anything. A code block severed
+mid-function. A paragraph that opens with "this is why it matters" where "this"
+was in the chunk before.
+
+That tension is the entire subject:
+
+| Strategy | How it cuts | Trade |
+| --- | --- | --- |
+| Fixed | every N tokens | fast, and it will cut through anything |
+| Recursive | paragraph, then sentence, then word | respects structure where structure exists |
+| Semantic | where the topic shifts | better boundaries, costs a model call per document |
+| AST-aware | function and class boundaries | the only sane option for code |
+
+Cut small for precision and you break units of meaning. Cut large to keep them
+whole and you are back to noise.
+
+### Embedding
+
+Text becomes a vector. The reason is not that models need numbers, because the
+store is a database and would hold text perfectly well.
+
+Consider two of my titles: "How agents remember things across conversations" and
+"Storing state in a chatbot over time". Same subject. Almost no shared
+vocabulary. A keyword search for "agent memory" hits the first and misses the
+second entirely.
+
+Embeddings fix this by placing text as a point in a high-dimensional space,
+positioned so that things which mean similar things land near each other
+regardless of the words used. Once meaning is a position, similarity is a
+distance, and distance is something a computer can sort by.
+
+The vocabulary for the deep-dive post: dimensions, and **MTEB**, the benchmark
+that scores how sensibly a given embedding model places things.
+
+### Storing
+
+The vectors go into a database that can search by distance. `pgvector` if you
+already run Postgres and want one fewer system. Chroma to get moving locally.
+Qdrant and Pinecone when the corpus is large enough that this becomes its own
+operational concern.
+
+The thing that makes any of them viable is that they do not compare your query
+against every stored vector. Approximate nearest neighbour search, usually HNSW,
+trades a small amount of recall for an enormous amount of speed. That trade is
+its own post.
+
+---
+
+## Pipeline two: answering the question
+
+### Retrieval
+
+The question becomes a vector using the same model as the ingestion side. Then
+the store returns the nearest chunks.
+
+Here is where the naming is honest in a way the rest of this field is not. It is
+called **top-k**, not top-relevant. The store cannot judge relevance. Every one
+of the four hundred chunks has a distance from the question, none of them are
+labelled, and the store hands back the k nearest.
+
+Which means if the answer is not in the corpus at all, top-5 still returns five
+chunks. Five wrong chunks, neatly ranked.
+
+k is a real decision with failures in both directions. Too small and the chunk
+holding the answer sits at position six and never arrives. Too large and the
+answer arrives buried in noise.
+
+The second half of retrieval is metadata, and it does three separate jobs that
+are usually mentioned as one.
+
+Store the date, source file, author and section title alongside each chunk.
+Then:
+
+- **Filtering.** "Only posts from this year" is not a distance question. Filter
+  first, search the survivors.
+- **Freshness.** Edit a post and metadata tells you exactly which chunks came
+  from that file, so you delete and re-add those rather than rebuilding
+  everything.
+- **Permissions.** Each chunk carries who may see it, and the filter runs
+  *before* retrieval. Filtering after generation is a leak, because the answer
+  already exists by then.
+
+### Packing the prompt
+
+Five chunks come back and there is a person waiting. What goes into the prompt,
+and in what order, decides three of the eight ways this system fails. Most
+write-ups skip this step entirely.
+
+The shape is: instruction, question, chunks. The details are where it lives or
+dies.
+
+**Contradictions.** Chunk three says memory is a sliding window. Chunk five says
+it is a vector store. Both came back. The model was not present when I wrote
+either post and has no basis for preferring one. Left alone it will blend them
+or pick one and state it flatly, and it will sound certain either way. The
+instruction has to permit disagreement: if the sources conflict, say so and show
+both.
+
+**Grounding.** The default is a confident answer. The instruction needs two
+clauses, and both are load-bearing. Answer only from the chunks below. If they
+do not contain the answer, say so. The first clause alone still lets the model
+fill gaps from training.
+
+That second clause is what hands the system back the one capability search had
+and the model never did: the ability to come back empty. That is the problem
+from section one, closed.
+
+**Citations.** For the model to attribute anything, the metadata has to travel
+into the prompt, not just sit in the store. Label each chunk with its source
+before the model sees it, then instruct it to cite the label.
+
+Notice the pattern across all three. The model only does what the instruction
+permits. Its default, every time, is a fluent answer.
+
+---
+
+## Eight ways it breaks
+
+The answer is wrong. There are eight places that could have come from, and they
+divide into two groups that look identical from outside.
+
+| Symptom | Cause | Where |
+| --- | --- | --- |
+| Answers are vaguely off across the board | parsing produced garbage text | ingestion |
+| Answer is half-right, missing context | chunk boundary cut the meaning apart | chunking |
+| Cannot filter, cannot cite, stale results | metadata never stored | ingestion |
+| The right chunk exists but never appears | k too small | retrieval |
+| The right chunk appears and gets ignored | k too large, answer drowned in noise | retrieval |
+| Two sources conflict, answer picks one silently | no conflict instruction | prompt |
+| Confident answer about content you never wrote | no grounding instruction | prompt |
+| Citations wrong or missing | chunks unlabelled in the prompt | prompt |
+
+The grouping that matters at two in the morning is coarser than the table.
+Either **the right chunk never reached the model**, or **it reached the model and
+the answer was still wrong**.
+
+Both present as one wrong answer with no explanation. The fixes have nothing to
+do with each other. Better chunking will not repair a missing instruction line,
+and no amount of prompt work will conjure a chunk that retrieval discarded.
+
+So the first debugging move is never "improve the system". It is: print what
+retrieval returned, before the model touched it. If the answer is not in those
+five chunks, close the prompt file.
+
+---
+
+## What you add when this isn't enough
+
+Everything above is the baseline. Four upgrades, ordered by the problem each one
+solves rather than by how impressive it sounds.
+
+### Hybrid search
+
+Vector search finds "state" when you asked about "memory". It is much worse at
+finding `handleStreamOverflow`.
+
+The reason is compression. Two hundred words become one point, and everything in
+those words is averaged into it. A rare token barely moves that point. It gets
+swamped by the general topic of the paragraph.
+
+Keyword search is the mirror image. It understands nothing, but a rare word is a
+strong signal *because* it is rare, and it matches exactly without averaging.
+This is **BM25**, and it is a good decade older than any of this.
+
+So run both. Which creates a merge problem.
+
+A vector distance of 0.83 and a BM25 score of 14.2 are not comparable. Different
+scales, different meanings, no valid way to add or average them.
+
+The fix is to throw the scores away. Cover them up and look at what remains:
+position. Rank means the same thing in both lists, which is "this method's best
+guess". So score by rank instead of by value, and reward chunks that both
+methods ranked highly. Agreement across two unrelated methods is the signal.
+
+That is **RRF**, reciprocal rank fusion. Ignore the scores, use the ranks.
+
+### Reranking
+
+Hybrid search improves the ordering, but the ordering is still produced by cheap
+methods. Distance and word overlap. Neither one has read the question against
+the chunk.
+
+A cross-encoder can. It takes the question and one chunk together and judges
+whether the chunk answers it. It is far more accurate than distance.
+
+You cannot use it as your search, and the reason is structural rather than
+budgetary. Vector search compares one point against points computed on Tuesday.
+A cross-encoder has to process question and chunk as a pair, so nothing can be
+precomputed. Four hundred chunks means four hundred forward passes at query
+time, with someone waiting.
+
+Too slow for four hundred. Perfectly fine for twenty. Hence two stages:
+
+<Flow
+  rows={[
+    {
+      lead: "stage 1",
+      nodes: [
+        { label: "400 chunks" },
+        { label: "vector + BM25", sub: "cheap, wide" },
+        { label: "top 20" },
+      ],
+    },
+    {
+      lead: "stage 2",
+      nodes: [
+        { label: "top 20" },
+        { label: "cross-encoder", sub: "expensive, narrow" },
+        { label: "top 5" },
+      ],
+    },
+  ]}
+  caption="Retrieve wide so the answer is not discarded, rerank so the noise never reaches the model."
+/>
+
+This dissolves the k tension from the failure table. Set k high enough that you
+do not lose the answer, then let the reranker throw away what the high k dragged
+in.
+
+### Query rewriting
+
+Everything so far improves the search. This works on the other end.
+
+Somebody sends: "and what about the second one?" That is the whole message.
+Embed it and you get a point that means nothing, because there is no subject in
+it. The nearest chunks are effectively random. Retrieval fails before the model
+gets a chance to.
+
+So fix the question first, using the conversation history. "And what about the
+second one?" becomes "what is the second chunking strategy?", and *that* gets
+embedded.
+
+Three variants worth naming:
+
+- **Rewriting.** Resolve pronouns and context into a standalone question.
+- **Multi-query.** Turn one question into three phrasings, search all three,
+  merge. Covers the gap between the user's vocabulary and the document's.
+- **HyDE.** Ask the model to write a fake answer first, then search using that.
+  A hypothetical answer resembles your documents far more closely than a
+  question does, so it lands nearer to them in vector space.
+
+HyDE is the one that sounds wrong and works.
+
+### Agentic and graph RAG
+
+Here is a question the system above cannot answer no matter how good the
+reranker gets:
+
+> How has my thinking about agent memory changed between my first post and my
+> most recent one?
+
+One retrieval pass cannot do it, because that is not one question. It is find
+the earliest post, find the latest post, then compare. The third step depends on
+the first two, and "the difference" is not written down in any chunk. It only
+exists once both ends are in hand.
+
+**Agentic RAG** is retrieval in a loop, with the model deciding what to search
+for next based on what the last search returned. The cost is more calls, more
+latency, and the possibility of looping until you stop it.
+
+**Graph RAG** addresses a different gap. My posts reference each other. In a
+vector store every chunk is an isolated point and those links do not exist.
+Graph RAG stores relationships as relationships, so "what did I write that
+builds on the prompt engineering post" becomes traversable, hop by hop.
+
+---
+
+## Measuring it
+
+There are two numbers and reporting one of them is worse than reporting none.
+
+**Retrieval hit rate.** Take a question where you know which chunk holds the
+answer. Retrieval returns five. Was the right chunk among them? Yes or no. Run
+that over fifty questions and you have a percentage.
+
+That requires knowing the right answer in advance, which means building a small
+labelled set by hand. That is the boring, unavoidable work everyone skips, and
+skipping it is why so many RAG systems are tuned by vibes.
+
+**Answer quality**, measured only on questions where retrieval succeeded. Two
+checks: is the answer supported by the chunks, or did the model add things that
+are not there, and does it actually address the question.
+
+The separation is the whole point. Hit rate at 60% means no prompt change will
+save you. Hit rate at 95% with bad answers means better chunking is wasted
+effort. A single blended quality score tells you which half to fix, which is to
+say it tells you nothing.
+
+---
+
+## When not to use RAG
+
+Three cases, and I have met all three.
+
+**When you want the output to sound a particular way.** That is fine-tuning's
+job. RAG hands over documents. It does not change how the model writes.
+
+**When the question is general knowledge.** "Explain how a closure works" needs
+no store. Bolting retrieval onto it adds latency and a real chance of pulling in
+something irrelevant that drags the answer off course. Retrieval can make a good
+answer worse.
+
+**When the corpus is small.** Forty posts fit in one prompt. Pasting them in
+costs more per question and builds in an afternoon instead of a fortnight, with
+none of the eight failure modes above. RAG earns its complexity at scale. Below
+that scale it is machinery you maintain for nothing.
+
+---
+
+The part of this that took me longest to see is the two-pipeline split. Once
+retrieval and ingestion are separate clocks in your head, the failure table
+stops being a list to memorise and becomes obvious, because every entry is just
+"which pipeline, which step".
+
+Each of the steps here gets its own post. Ingestion first, since it is the one
+that fails silently.
